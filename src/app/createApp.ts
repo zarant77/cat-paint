@@ -1,5 +1,6 @@
 import { CanvasView } from "../canvas/CanvasView.js";
 import { buildCExport } from "../export/buildCExport.js";
+import type { ParsedSprite } from "../import/parseSpriteC.js";
 import type { Primitive, ToolKind } from "../primitives/Primitive.js";
 import { bindKeyboardShortcuts } from "../shortcuts/keyboardShortcuts.js";
 import { bindToolbar } from "../ui/bindToolbar.js";
@@ -7,7 +8,6 @@ import { bindClearDialog } from "../ui/clearDialog.js";
 import { getAppElements } from "../ui/elements.js";
 import { bindImportDialog } from "../ui/importDialog.js";
 import { applyHistorySnapshot, clonePrimitives, createHistorySnapshot, createInitialState } from "./AppState.js";
-import type { ParsedSprite } from "../import/parseSpriteC.js";
 
 const MIN_CANVAS_SIZE = 1;
 const MAX_CANVAS_SIZE = 2048;
@@ -15,6 +15,8 @@ const MIN_PRIMITIVE_SIZE = 1;
 const PASTE_OFFSET = 8;
 const DEGREES_PER_RADIAN = 180 / Math.PI;
 const RADIANS_PER_DEGREE = Math.PI / 180;
+
+type LayerMoveTarget = "back" | "backward" | "forward" | "front";
 
 type SelectedPrimitive = {
   index: number;
@@ -102,7 +104,6 @@ export function createApp(): void {
     state.redoStack = [];
     state.selectedPrimitiveIndexes = [];
 
-    elements.spriteIdInput.value = sprite.spriteId;
     syncCanvasSizeInput();
 
     canvasView.setupCanvas();
@@ -113,9 +114,10 @@ export function createApp(): void {
     onImport: applyImportedSprite,
   });
 
-  bindToolbar(elements, state, {
+  bindToolbar(elements, {
     onSelectTool: selectTool,
-    onResizeCanvas: (value) => {
+
+    onResizeCanvas: (value: string): void => {
       const nextSize = parseCanvasSizeInput(value);
 
       if (!nextSize) {
@@ -136,12 +138,15 @@ export function createApp(): void {
       state.pivotX = Math.floor(nextSize.width / 2);
       state.pivotY = Math.floor(nextSize.height / 2);
       state.redoStack = [];
+
       syncCanvasSizeInput();
       canvasView.setupCanvas();
       canvasView.render();
     },
-    onValidateCanvasSize: (value) => parseCanvasSizeInput(value) !== null,
-    onApplyColor: (value) => {
+
+    onValidateCanvasSize: (value: string): boolean => parseCanvasSizeInput(value) !== null,
+
+    onApplyColor: (value: string): void => {
       const nextColor = parseColorInput(value);
 
       if (!nextColor) {
@@ -152,29 +157,38 @@ export function createApp(): void {
       elements.colorHexInput.classList.remove("is-invalid");
       state.color = nextColor.color;
       state.alpha = nextColor.alpha;
+
       syncColorInputs();
       updateExport();
     },
-    onValidateColor: (value) => parseColorInput(value) !== null,
-    onScaleSelected: (factor) => {
+
+    onValidateColor: (value: string): boolean => parseColorInput(value) !== null,
+
+    onScaleSelected: (factor: number): void => {
       scaleSelectedPrimitive(factor);
     },
-    onRotateSelected: (degrees) => {
+
+    onRotateSelected: (degrees: number): void => {
       rotateSelectedPrimitive(degrees);
     },
-    onMoveSelectedLayer: (target) => {
+
+    onMoveSelectedLayer: (target: LayerMoveTarget): void => {
       moveSelectedLayer(target);
     },
-    onCopyPrimitive: () => {
+
+    onCopyPrimitive: (): void => {
       copySelectedPrimitive();
     },
-    onPastePrimitive: () => {
+
+    onPastePrimitive: (): void => {
       pastePrimitive();
     },
-    onDeletePrimitive: () => {
+
+    onDeletePrimitive: (): void => {
       deleteSelectedPrimitive();
     },
-    onUndo: () => {
+
+    onUndo: (): void => {
       const snapshot = state.undoStack.pop();
 
       if (!snapshot) {
@@ -184,13 +198,13 @@ export function createApp(): void {
       state.redoStack.push(createHistorySnapshot(state));
       applyHistorySnapshot(state, snapshot);
 
-      elements.spriteIdInput.value = state.spriteId;
       syncCanvasSizeInput();
       clampSelection();
       canvasView.setupCanvas();
       canvasView.render();
     },
-    onRedo: () => {
+
+    onRedo: (): void => {
       const snapshot = state.redoStack.pop();
 
       if (!snapshot) {
@@ -200,12 +214,12 @@ export function createApp(): void {
       state.undoStack.push(createHistorySnapshot(state));
       applyHistorySnapshot(state, snapshot);
 
-      elements.spriteIdInput.value = state.spriteId;
       syncCanvasSizeInput();
       clampSelection();
       canvasView.setupCanvas();
       canvasView.render();
     },
+
     onClear: requestClear,
     onImport: importDialog.requestImport,
     onCopy: copyExport,
@@ -215,19 +229,29 @@ export function createApp(): void {
 
   bindKeyboardShortcuts({
     onSelectTool: selectTool,
-    onUndo: () => elements.undoButton.click(),
-    onRedo: () => elements.redoButton.click(),
+
+    onUndo: (): void => {
+      elements.undoButton.click();
+    },
+
+    onRedo: (): void => {
+      elements.redoButton.click();
+    },
+
     onCopy: copySelectedPrimitive,
     onPaste: pastePrimitive,
     onImport: importDialog.requestImport,
     onShow: showExport,
     onDelete: deleteSelectedPrimitive,
-    onClearSelection: () => {
+
+    onClearSelection: (): void => {
       if (state.activeTool !== null) {
         state.activeTool = null;
+
         elements.kindButtons.forEach((button) => {
           button.classList.toggle("is-active", false);
         });
+
         canvasView.render();
         return;
       }
@@ -235,6 +259,7 @@ export function createApp(): void {
       state.selectedPrimitiveIndexes = [];
       canvasView.render();
     },
+
     onMoveLayer: moveSelectedLayer,
   });
 
@@ -246,13 +271,14 @@ export function createApp(): void {
   canvasView.render();
 
   function getSelectedIndexes(): number[] {
-    return [...new Set(state.selectedPrimitiveIndexes)]
-      .filter((index) => state.primitives[index])
-      .sort((a, b) => a - b);
+    return [...new Set(state.selectedPrimitiveIndexes)].filter((index) => state.primitives[index]).sort((a, b) => a - b);
   }
 
   function getSelectedPrimitives(): SelectedPrimitive[] {
-    return getSelectedIndexes().map((index) => ({ index, primitive: state.primitives[index] }));
+    return getSelectedIndexes().map((index) => ({
+      index,
+      primitive: state.primitives[index],
+    }));
   }
 
   function scaleSelectedPrimitive(factor: number): void {
@@ -314,6 +340,7 @@ export function createApp(): void {
     for (const { primitive } of selectedPrimitives) {
       const offsetX = primitive.x - center.x;
       const offsetY = primitive.y - center.y;
+
       primitive.x = Math.round(center.x + offsetX * cos - offsetY * sin);
       primitive.y = Math.round(center.y + offsetX * sin + offsetY * cos);
       primitive.rotation += angle;
@@ -334,46 +361,25 @@ export function createApp(): void {
     updateSelectedPrimitiveControls();
   }
 
-  function moveSelectedLayer(target: "back" | "backward" | "forward" | "front"): void {
-    const selectedIndexes = getSelectedIndexes();
-
-    if (selectedIndexes.length === 0 || state.primitives.length < 2) {
-      updateSelectedPrimitiveControls();
-      return;
-    }
-
-    const selectedSet = new Set(selectedIndexes);
-    const selectedPrimitives = state.primitives.filter((_, index) => selectedSet.has(index));
-    const remainingPrimitives = state.primitives.filter((_, index) => !selectedSet.has(index));
-    const nextIndex = getNextLayerIndex(selectedIndexes, remainingPrimitives.length, target);
-
-    if (arraysEqual(state.primitives, insertPrimitives(remainingPrimitives, selectedPrimitives, nextIndex))) {
-      updateSelectedPrimitiveControls();
-      return;
-    }
-
-    state.undoStack.push(createHistorySnapshot(state));
-    state.primitives = insertPrimitives(remainingPrimitives, selectedPrimitives, nextIndex);
-    state.selectedPrimitiveIndexes = selectedPrimitives.map((primitive) => state.primitives.indexOf(primitive));
-    state.redoStack = [];
-    canvasView.render();
-  }
-
   function pastePrimitive(): void {
     if (primitiveClipboard.length === 0) {
       return;
     }
 
     state.undoStack.push(createHistorySnapshot(state));
+
     const pastedPrimitives = primitiveClipboard.map((primitive) => ({
       ...primitive,
       x: primitive.x + PASTE_OFFSET,
       y: primitive.y + PASTE_OFFSET,
     }));
+
     const firstPastedIndex = state.primitives.length;
+
     state.primitives.push(...pastedPrimitives);
     state.selectedPrimitiveIndexes = pastedPrimitives.map((_, index) => firstPastedIndex + index);
     state.redoStack = [];
+
     canvasView.render();
   }
 
@@ -387,10 +393,39 @@ export function createApp(): void {
     }
 
     const selectedSet = new Set(selectedIndexes);
+
     state.undoStack.push(createHistorySnapshot(state));
     state.primitives = state.primitives.filter((_, index) => !selectedSet.has(index));
     state.selectedPrimitiveIndexes = [];
     state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function moveSelectedLayer(target: LayerMoveTarget): void {
+    const selectedIndexes = getSelectedIndexes();
+
+    if (selectedIndexes.length === 0 || state.primitives.length < 2) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    const selectedSet = new Set(selectedIndexes);
+    const selectedPrimitives = state.primitives.filter((_, index) => selectedSet.has(index));
+    const remainingPrimitives = state.primitives.filter((_, index) => !selectedSet.has(index));
+    const nextIndex = getNextLayerIndex(selectedIndexes, remainingPrimitives.length, target);
+    const nextPrimitives = insertPrimitives(remainingPrimitives, selectedPrimitives, nextIndex);
+
+    if (arraysEqual(state.primitives, nextPrimitives)) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    state.primitives = nextPrimitives;
+    state.selectedPrimitiveIndexes = selectedPrimitives.map((primitive) => state.primitives.indexOf(primitive));
+    state.redoStack = [];
+
     canvasView.render();
   }
 
@@ -436,13 +471,17 @@ export function createApp(): void {
 
   function syncColorInputs(): void {
     const alphaHex = state.alpha.toString(16).padStart(2, "0");
+
     elements.colorInput.value = state.color;
     elements.colorHexInput.value = `${state.color}${alphaHex}`;
     elements.colorHexInput.classList.remove("is-invalid");
   }
 
   function parseCanvasSizeInput(value: string): { width: number; height: number } | null {
-    const fields = value.trim().split(/[x,;\s]+/i).filter(Boolean);
+    const fields = value
+      .trim()
+      .split(/[x,;\s]+/i)
+      .filter(Boolean);
 
     if (fields.length !== 2) {
       return null;
@@ -493,6 +532,7 @@ export function createApp(): void {
 
     for (const { primitive } of selectedPrimitives) {
       const bounds = getPrimitiveBounds(primitive);
+
       minX = Math.min(minX, bounds.minX);
       minY = Math.min(minY, bounds.minY);
       maxX = Math.max(maxX, bounds.maxX);
@@ -520,11 +560,7 @@ export function createApp(): void {
     };
   }
 
-  function getNextLayerIndex(
-    selectedIndexes: number[],
-    remainingLength: number,
-    target: "back" | "backward" | "forward" | "front",
-  ): number {
+  function getNextLayerIndex(selectedIndexes: number[], remainingLength: number, target: LayerMoveTarget): number {
     const minSelectedIndex = Math.min(...selectedIndexes);
 
     if (target === "back") {
