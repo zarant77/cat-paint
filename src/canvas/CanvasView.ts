@@ -1,7 +1,7 @@
 import type { AppState } from "../app/AppState.js";
 import { createHistorySnapshot } from "../app/AppState.js";
 import type { AppElements } from "../ui/elements.js";
-import type { Point, Primitive } from "../primitives/Primitive.js";
+import type { CreateToolKind, Point, Primitive, ToolKind } from "../primitives/Primitive.js";
 import { createPrimitiveFromDrag } from "./primitiveFactory.js";
 import { drawPrimitive } from "../primitives/drawPrimitive.js";
 import { getCanvasContext } from "../ui/dom.js";
@@ -11,13 +11,31 @@ export type CanvasViewCallbacks = {
   onRender: () => void;
 };
 
-type InteractionMode = "idle" | "creatingPrimitive" | "draggingPrimitives" | "draggingSelection";
+type InteractionMode =
+  | "idle"
+  | "creatingPrimitive"
+  | "draggingPrimitives"
+  | "draggingSelection"
+  | "rotatingSelection"
+  | "scalingSelection";
 
 type RectBounds = {
   minX: number;
   minY: number;
   maxX: number;
   maxY: number;
+};
+
+type TransformPrimitiveStart = {
+  index: number;
+  primitive: Primitive;
+};
+
+type TransformStart = {
+  pivot: Point;
+  angle: number;
+  distance: number;
+  primitives: TransformPrimitiveStart[];
 };
 
 export class CanvasView {
@@ -35,6 +53,8 @@ export class CanvasView {
   private isAddingToSelection = false;
   private interactionMode: InteractionMode = "idle";
   private isMovingPrimitive = false;
+  private transformStart: TransformStart | null = null;
+  private hasTransformedSelection = false;
 
   constructor(elements: AppElements, state: AppState, callbacks: CanvasViewCallbacks) {
     this.canvas = elements.canvas;
@@ -54,13 +74,24 @@ export class CanvasView {
       const point = this.getSpritePoint(event);
       const hitIndexes = this.hitTestAllPrimitives(point);
 
+      if (this.state.activeTool === "fill") {
+        this.fillTopmostPrimitive(hitIndexes);
+        return;
+      }
+
+      if (this.state.activeTool === "rotate" || this.state.activeTool === "scale") {
+        this.beginTransform(point, hitIndexes);
+        this.render();
+        return;
+      }
+
       if (hitIndexes.length > 0) {
         this.beginSelection(point, event.shiftKey, hitIndexes);
         this.render();
         return;
       }
 
-      if (this.state.activeTool !== null) {
+      if (isCreateToolKind(this.state.activeTool)) {
         this.beginPrimitiveCreation(point);
         return;
       }
@@ -78,6 +109,16 @@ export class CanvasView {
       if (this.interactionMode === "draggingSelection") {
         this.selectionCurrent = this.getSpritePoint(event);
         this.render();
+        return;
+      }
+
+      if (this.interactionMode === "rotatingSelection") {
+        this.rotateSelection(this.getSpritePoint(event));
+        return;
+      }
+
+      if (this.interactionMode === "scalingSelection") {
+        this.scaleSelection(this.getSpritePoint(event));
         return;
       }
 
@@ -99,6 +140,12 @@ export class CanvasView {
 
       if (this.interactionMode === "draggingSelection") {
         this.endBoxSelection();
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode === "rotatingSelection" || this.interactionMode === "scalingSelection") {
+        this.endTransform();
         this.render();
         return;
       }
@@ -180,6 +227,61 @@ export class CanvasView {
     }
 
     return hitIndexes;
+  }
+
+  private fillTopmostPrimitive(hitIndexes: number[]): void {
+    const primitive = this.state.primitives[hitIndexes[0]];
+
+    if (!primitive || (primitive.color === this.state.color && primitive.alpha === this.state.alpha)) {
+      return;
+    }
+
+    this.state.undoStack.push(createHistorySnapshot(this.state));
+    primitive.color = this.state.color;
+    primitive.alpha = this.state.alpha;
+    this.state.redoStack = [];
+    this.render();
+  }
+
+  private beginTransform(point: Point, hitIndexes: number[]): void {
+    this.resetInteraction();
+
+    if (this.state.selectedPrimitiveIndexes.length === 0 && hitIndexes.length > 0) {
+      this.state.selectedPrimitiveIndexes = [hitIndexes[0]];
+    }
+
+    const selectedIndexes = sortIndexes(this.state.selectedPrimitiveIndexes).filter((index) => {
+      return this.state.primitives[index];
+    });
+
+    if (selectedIndexes.length === 0) {
+      return;
+    }
+
+    const bounds = getPrimitivesBounds(selectedIndexes.map((index) => this.state.primitives[index]));
+
+    if (!bounds) {
+      return;
+    }
+
+    const pivot = {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: (bounds.minY + bounds.maxY) / 2,
+    };
+    const dx = point.x - pivot.x;
+    const dy = point.y - pivot.y;
+
+    this.transformStart = {
+      pivot,
+      angle: Math.atan2(dy, dx),
+      distance: Math.hypot(dx, dy),
+      primitives: selectedIndexes.map((index) => ({
+        index,
+        primitive: { ...this.state.primitives[index] },
+      })),
+    };
+    this.interactionMode = this.state.activeTool === "rotate" ? "rotatingSelection" : "scalingSelection";
+    this.hasTransformedSelection = false;
   }
 
   private beginPrimitiveCreation(point: Point): void {
@@ -290,6 +392,92 @@ export class CanvasView {
     this.render();
   }
 
+  private rotateSelection(point: Point): void {
+    if (!this.transformStart) {
+      return;
+    }
+
+    const dx = point.x - this.transformStart.pivot.x;
+    const dy = point.y - this.transformStart.pivot.y;
+    const delta = Math.atan2(dy, dx) - this.transformStart.angle;
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+
+    this.ensureTransformHistory();
+
+    for (const start of this.transformStart.primitives) {
+      const primitive = this.state.primitives[start.index];
+
+      if (!primitive) {
+        continue;
+      }
+
+      const offsetX = start.primitive.x - this.transformStart.pivot.x;
+      const offsetY = start.primitive.y - this.transformStart.pivot.y;
+      primitive.x = Math.round(this.transformStart.pivot.x + offsetX * cos - offsetY * sin);
+      primitive.y = Math.round(this.transformStart.pivot.y + offsetX * sin + offsetY * cos);
+      primitive.rotation = start.primitive.rotation + delta;
+    }
+
+    this.render();
+  }
+
+  private scaleSelection(point: Point): void {
+    if (!this.transformStart || this.transformStart.distance < 0.001) {
+      return;
+    }
+
+    const distance = Math.hypot(point.x - this.transformStart.pivot.x, point.y - this.transformStart.pivot.y);
+    const factor = distance / this.transformStart.distance;
+
+    if (!Number.isFinite(factor) || factor <= 0) {
+      return;
+    }
+
+    for (const start of this.transformStart.primitives) {
+      const nextW = Math.round(start.primitive.w * factor);
+      const nextH = start.primitive.kind === "circle" ? start.primitive.h : Math.round(start.primitive.h * factor);
+
+      if (nextW < 1 || (start.primitive.kind !== "circle" && nextH < 1)) {
+        return;
+      }
+    }
+
+    this.ensureTransformHistory();
+
+    for (const start of this.transformStart.primitives) {
+      const primitive = this.state.primitives[start.index];
+
+      if (!primitive) {
+        continue;
+      }
+
+      primitive.x = Math.round(
+        this.transformStart.pivot.x + (start.primitive.x - this.transformStart.pivot.x) * factor,
+      );
+      primitive.y = Math.round(
+        this.transformStart.pivot.y + (start.primitive.y - this.transformStart.pivot.y) * factor,
+      );
+      primitive.w = Math.max(1, Math.round(start.primitive.w * factor));
+
+      if (primitive.kind !== "circle") {
+        primitive.h = Math.max(1, Math.round(start.primitive.h * factor));
+      }
+    }
+
+    this.render();
+  }
+
+  private ensureTransformHistory(): void {
+    if (this.hasTransformedSelection) {
+      return;
+    }
+
+    this.state.undoStack.push(createHistorySnapshot(this.state));
+    this.state.redoStack = [];
+    this.hasTransformedSelection = true;
+  }
+
   private endSelectionMove(): void {
     if (!this.isMovingPrimitive && this.pendingSingleSelectionIndex !== null) {
       this.state.selectedPrimitiveIndexes = [this.pendingSingleSelectionIndex];
@@ -322,6 +510,10 @@ export class CanvasView {
     this.resetInteraction();
   }
 
+  private endTransform(): void {
+    this.resetInteraction();
+  }
+
   private resetInteraction(): void {
     this.dragStart = null;
     this.draftPrimitive = null;
@@ -333,6 +525,8 @@ export class CanvasView {
     this.isAddingToSelection = false;
     this.interactionMode = "idle";
     this.isMovingPrimitive = false;
+    this.transformStart = null;
+    this.hasTransformedSelection = false;
   }
 
   private drawSelection(): void {
@@ -538,6 +732,10 @@ function getPrimitiveBounds(primitive: Primitive): RectBounds {
 
 function sortIndexes(indexes: number[]): number[] {
   return [...new Set(indexes)].sort((a, b) => a - b);
+}
+
+function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
+  return tool === "rect" || tool === "circle" || tool === "triangle";
 }
 
 function normalizeBounds(start: Point, end: Point): RectBounds {

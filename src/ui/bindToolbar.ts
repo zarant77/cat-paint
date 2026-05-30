@@ -1,4 +1,6 @@
-import type { PrimitiveKind, ToolKind } from "../primitives/Primitive.js";
+import type { ToolKind } from "../primitives/Primitive.js";
+import { HOTKEYS } from "../shortcuts/hotkeys.js";
+import { getShortcutLabel, tooltip } from "../shortcuts/shortcutLabel.js";
 import type { AppElements } from "./elements.js";
 
 export type ToolbarCallbacks = {
@@ -7,8 +9,8 @@ export type ToolbarCallbacks = {
   onValidateCanvasSize: (value: string) => boolean;
   onApplyColor: (value: string) => void;
   onValidateColor: (value: string) => boolean;
-  onScaleSelected: (factor: number) => void;
-  onRotateSelected: (degrees: number) => void;
+  onFlipHorizontal: () => void;
+  onFlipVertical: () => void;
   onMoveSelectedLayer: (target: "back" | "backward" | "forward" | "front") => void;
   onCopyPrimitive: () => void;
   onPastePrimitive: () => void;
@@ -23,6 +25,8 @@ export type ToolbarCallbacks = {
 };
 
 export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks): void {
+  applyTooltips(elements);
+
   const commitCanvasSize = (): void => {
     callbacks.onResizeCanvas(elements.canvasSizeInput.value);
   };
@@ -67,7 +71,7 @@ export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks):
     button.addEventListener("click", () => {
       const kind = button.dataset.kind;
 
-      if (!isPrimitiveKind(kind)) {
+      if (!isToolKind(kind)) {
         return;
       }
 
@@ -75,39 +79,8 @@ export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks):
     });
   });
 
-  const commitScale = (): void => {
-    const scalePercent = Number(elements.scaleInput.value);
-
-    if (!Number.isFinite(scalePercent) || scalePercent <= 0) {
-      elements.scaleInput.classList.add("is-invalid");
-      return;
-    }
-
-    elements.scaleInput.classList.remove("is-invalid");
-    callbacks.onScaleSelected(scalePercent / 100);
-    elements.scaleInput.value = "100";
-  };
-
-  elements.scaleInput.addEventListener("blur", commitScale);
-
-  elements.scaleInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commitScale();
-    }
-  });
-
-  elements.rotationInput.addEventListener("change", () => {
-    const degrees = Number(elements.rotationInput.value);
-
-    if (!Number.isFinite(degrees)) {
-      elements.rotationInput.classList.add("is-invalid");
-      return;
-    }
-
-    elements.rotationInput.classList.remove("is-invalid");
-    callbacks.onRotateSelected(degrees);
-  });
+  elements.flipHorizontalButton.addEventListener("click", callbacks.onFlipHorizontal);
+  elements.flipVerticalButton.addEventListener("click", callbacks.onFlipVertical);
 
   elements.sendToBackButton.addEventListener("click", () => {
     callbacks.onMoveSelectedLayer("back");
@@ -140,6 +113,49 @@ export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks):
   elements.showButton.addEventListener("click", callbacks.onShow);
 }
 
-function isPrimitiveKind(value: string | undefined): value is PrimitiveKind {
-  return value === "rect" || value === "circle" || value === "triangle";
+function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {
+  return (
+    value === "rect" ||
+    value === "circle" ||
+    value === "triangle" ||
+    value === "fill" ||
+    value === "rotate" ||
+    value === "scale"
+  );
+}
+
+function applyTooltips(elements: AppElements): void {
+  setButtonTooltip(elements.kindButtons[0], "Add rectangle", HOTKEYS.tools.rect);
+  setButtonTooltip(elements.kindButtons[1], "Add circle", HOTKEYS.tools.circle);
+  setButtonTooltip(elements.kindButtons[2], "Add triangle", HOTKEYS.tools.triangle);
+  setButtonTooltip(elements.kindButtons[3], "Fill primitive", HOTKEYS.tools.fill);
+  setButtonTooltip(elements.kindButtons[4], "Rotate selection", HOTKEYS.tools.rotate);
+  setButtonTooltip(elements.kindButtons[5], "Scale selection", HOTKEYS.tools.scale);
+  setButtonTooltip(elements.flipHorizontalButton, "Flip horizontal", HOTKEYS.actions.flipHorizontal);
+  setButtonTooltip(elements.flipVerticalButton, "Flip vertical", HOTKEYS.actions.flipVertical);
+  setButtonTooltip(elements.sendToBackButton, "Send to back", HOTKEYS.actions.sendToBack);
+  setButtonTooltip(elements.sendBackwardButton, "Send backward", HOTKEYS.actions.sendBackward);
+  setButtonTooltip(elements.bringForwardButton, "Bring forward", HOTKEYS.actions.bringForward);
+  setButtonTooltip(elements.bringToFrontButton, "Bring to front", HOTKEYS.actions.bringToFront);
+  setButtonTooltip(elements.copyPrimitiveButton, "Copy selected primitives", HOTKEYS.actions.copy);
+  setButtonTooltip(elements.pastePrimitiveButton, "Paste primitives", HOTKEYS.actions.paste);
+  elements.deletePrimitiveButton.title = `Delete selected primitives - ${getShortcutLabel(
+    HOTKEYS.actions.delete,
+  )} / ${getShortcutLabel(HOTKEYS.actions.backspaceDelete)}`;
+  setButtonTooltip(elements.undoButton, "Undo", HOTKEYS.actions.undo);
+  elements.redoButton.title = `Redo - ${getShortcutLabel(HOTKEYS.actions.redo)} / ${getShortcutLabel(
+    HOTKEYS.actions.redoAlt,
+  )}`;
+  elements.clearButton.title = "Clear sprite";
+  setButtonTooltip(elements.importButton, "Import sprite", HOTKEYS.actions.import);
+  elements.copyButton.title = "Copy sprite export";
+  setButtonTooltip(elements.showButton, "Show sprite export", HOTKEYS.actions.showExport);
+}
+
+function setButtonTooltip(button: HTMLButtonElement | undefined, label: string, shortcut: string): void {
+  if (!button) {
+    return;
+  }
+
+  button.title = tooltip(label, shortcut);
 }

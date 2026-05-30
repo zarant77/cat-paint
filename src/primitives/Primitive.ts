@@ -1,6 +1,10 @@
 export type PrimitiveKind = "rect" | "circle" | "triangle";
 
-export type ToolKind = PrimitiveKind | null;
+export type CreateToolKind = PrimitiveKind;
+
+export type EditToolKind = "fill" | "rotate" | "scale";
+
+export type ToolKind = CreateToolKind | EditToolKind | null;
 
 export type Primitive = {
   kind: PrimitiveKind;

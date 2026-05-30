@@ -7,8 +7,8 @@ export type AppElements = {
   colorInput: HTMLInputElement;
   colorHexInput: HTMLInputElement;
   selectionSummary: HTMLHeadingElement;
-  scaleInput: HTMLInputElement;
-  rotationInput: HTMLInputElement;
+  flipHorizontalButton: HTMLButtonElement;
+  flipVerticalButton: HTMLButtonElement;
   sendToBackButton: HTMLButtonElement;
   sendBackwardButton: HTMLButtonElement;
   bringForwardButton: HTMLButtonElement;
@@ -43,8 +43,8 @@ export function getAppElements(): AppElements {
     colorInput: getElement<HTMLInputElement>("color-input"),
     colorHexInput: getElement<HTMLInputElement>("color-hex-input"),
     selectionSummary: getElement<HTMLHeadingElement>("selection-summary"),
-    scaleInput: getElement<HTMLInputElement>("scale-input"),
-    rotationInput: getElement<HTMLInputElement>("rotation-input"),
+    flipHorizontalButton: getElement<HTMLButtonElement>("flip-horizontal-button"),
+    flipVerticalButton: getElement<HTMLButtonElement>("flip-vertical-button"),
     sendToBackButton: getElement<HTMLButtonElement>("send-to-back-button"),
     sendBackwardButton: getElement<HTMLButtonElement>("send-backward-button"),
     bringForwardButton: getElement<HTMLButtonElement>("bring-forward-button"),

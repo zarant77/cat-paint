@@ -1,7 +1,7 @@
 import { CanvasView } from "../canvas/CanvasView.js";
 import { buildCExport } from "../export/buildCExport.js";
 import type { ParsedSprite } from "../import/parseSpriteC.js";
-import type { Primitive, ToolKind } from "../primitives/Primitive.js";
+import type { CreateToolKind, Primitive, ToolKind } from "../primitives/Primitive.js";
 import { bindKeyboardShortcuts } from "../shortcuts/keyboardShortcuts.js";
 import { bindToolbar } from "../ui/bindToolbar.js";
 import { bindClearDialog } from "../ui/clearDialog.js";
@@ -11,10 +11,7 @@ import { applyHistorySnapshot, clonePrimitives, createHistorySnapshot, createIni
 
 const MIN_CANVAS_SIZE = 1;
 const MAX_CANVAS_SIZE = 2048;
-const MIN_PRIMITIVE_SIZE = 1;
 const PASTE_OFFSET = 8;
-const DEGREES_PER_RADIAN = 180 / Math.PI;
-const RADIANS_PER_DEGREE = Math.PI / 180;
 
 type LayerMoveTarget = "back" | "backward" | "forward" | "front";
 
@@ -43,7 +40,7 @@ export function createApp(): void {
   const selectTool = (tool: ToolKind): void => {
     state.activeTool = state.activeTool === tool ? null : tool;
 
-    if (tool !== null) {
+    if (isCreateToolKind(tool)) {
       state.activeKind = tool;
     }
 
@@ -164,13 +161,8 @@ export function createApp(): void {
 
     onValidateColor: (value: string): boolean => parseColorInput(value) !== null,
 
-    onScaleSelected: (factor: number): void => {
-      scaleSelectedPrimitive(factor);
-    },
-
-    onRotateSelected: (degrees: number): void => {
-      rotateSelectedPrimitive(degrees);
-    },
+    onFlipHorizontal: flipHorizontalSelection,
+    onFlipVertical: flipVerticalSelection,
 
     onMoveSelectedLayer: (target: LayerMoveTarget): void => {
       moveSelectedLayer(target);
@@ -229,6 +221,8 @@ export function createApp(): void {
 
   bindKeyboardShortcuts({
     onSelectTool: selectTool,
+    onFlipHorizontal: flipHorizontalSelection,
+    onFlipVertical: flipVerticalSelection,
 
     onUndo: (): void => {
       elements.undoButton.click();
@@ -279,75 +273,6 @@ export function createApp(): void {
       index,
       primitive: state.primitives[index],
     }));
-  }
-
-  function scaleSelectedPrimitive(factor: number): void {
-    const selectedPrimitives = getSelectedPrimitives();
-
-    if (selectedPrimitives.length === 0 || !Number.isFinite(factor) || factor <= 0 || factor === 1) {
-      return;
-    }
-
-    const center = getSelectionCenter(selectedPrimitives);
-
-    for (const { primitive } of selectedPrimitives) {
-      const nextW = Math.round(primitive.w * factor);
-      const nextH = primitive.kind === "circle" ? primitive.h : Math.round(primitive.h * factor);
-
-      if (!Number.isFinite(nextW) || !Number.isFinite(nextH) || nextW < MIN_PRIMITIVE_SIZE) {
-        return;
-      }
-
-      if (primitive.kind !== "circle" && nextH < MIN_PRIMITIVE_SIZE) {
-        return;
-      }
-    }
-
-    state.undoStack.push(createHistorySnapshot(state));
-
-    for (const { primitive } of selectedPrimitives) {
-      primitive.x = Math.round(center.x + (primitive.x - center.x) * factor);
-      primitive.y = Math.round(center.y + (primitive.y - center.y) * factor);
-      primitive.w = Math.max(MIN_PRIMITIVE_SIZE, Math.round(primitive.w * factor));
-
-      if (primitive.kind !== "circle") {
-        primitive.h = Math.max(MIN_PRIMITIVE_SIZE, Math.round(primitive.h * factor));
-      }
-    }
-
-    state.redoStack = [];
-    canvasView.render();
-  }
-
-  function rotateSelectedPrimitive(degrees: number): void {
-    const selectedPrimitives = getSelectedPrimitives();
-
-    if (selectedPrimitives.length === 0 || !Number.isFinite(degrees)) {
-      updateSelectedPrimitiveControls();
-      return;
-    }
-
-    const center = getSelectionCenter(selectedPrimitives);
-    const angle =
-      selectedPrimitives.length === 1
-        ? degrees * RADIANS_PER_DEGREE - selectedPrimitives[0].primitive.rotation
-        : degrees * RADIANS_PER_DEGREE;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-
-    state.undoStack.push(createHistorySnapshot(state));
-
-    for (const { primitive } of selectedPrimitives) {
-      const offsetX = primitive.x - center.x;
-      const offsetY = primitive.y - center.y;
-
-      primitive.x = Math.round(center.x + offsetX * cos - offsetY * sin);
-      primitive.y = Math.round(center.y + offsetX * sin + offsetY * cos);
-      primitive.rotation += angle;
-    }
-
-    state.redoStack = [];
-    canvasView.render();
   }
 
   function copySelectedPrimitive(): void {
@@ -402,6 +327,46 @@ export function createApp(): void {
     canvasView.render();
   }
 
+  function flipHorizontalSelection(): void {
+    const selectedPrimitives = getSelectedPrimitives();
+
+    if (selectedPrimitives.length === 0) {
+      return;
+    }
+
+    const center = getSelectionCenter(selectedPrimitives);
+
+    state.undoStack.push(createHistorySnapshot(state));
+
+    for (const { primitive } of selectedPrimitives) {
+      primitive.x = Math.round(center.x - (primitive.x - center.x));
+      primitive.rotation = -primitive.rotation;
+    }
+
+    state.redoStack = [];
+    canvasView.render();
+  }
+
+  function flipVerticalSelection(): void {
+    const selectedPrimitives = getSelectedPrimitives();
+
+    if (selectedPrimitives.length === 0) {
+      return;
+    }
+
+    const center = getSelectionCenter(selectedPrimitives);
+
+    state.undoStack.push(createHistorySnapshot(state));
+
+    for (const { primitive } of selectedPrimitives) {
+      primitive.y = Math.round(center.y - (primitive.y - center.y));
+      primitive.rotation = Math.PI - primitive.rotation;
+    }
+
+    state.redoStack = [];
+    canvasView.render();
+  }
+
   function moveSelectedLayer(target: LayerMoveTarget): void {
     const selectedIndexes = getSelectedIndexes();
 
@@ -437,8 +402,8 @@ export function createApp(): void {
     const frontStartIndex = state.primitives.length - selectedIndexes.length;
     const isAtFront = selectedIndexes.every((index, position) => index === frontStartIndex + position);
 
-    elements.scaleInput.disabled = !hasSelection;
-    elements.rotationInput.disabled = !hasSelection;
+    elements.flipHorizontalButton.disabled = !hasSelection;
+    elements.flipVerticalButton.disabled = !hasSelection;
     elements.sendToBackButton.disabled = !hasSelection || isAtBack;
     elements.sendBackwardButton.disabled = !hasSelection || isAtBack;
     elements.bringForwardButton.disabled = !hasSelection || isAtFront;
@@ -448,12 +413,6 @@ export function createApp(): void {
     elements.pastePrimitiveButton.disabled = primitiveClipboard.length === 0;
     elements.undoButton.disabled = state.undoStack.length === 0;
     elements.redoButton.disabled = state.redoStack.length === 0;
-
-    if (selectedPrimitives.length === 1) {
-      elements.rotationInput.value = String(Math.round(selectedPrimitives[0].primitive.rotation * DEGREES_PER_RADIAN));
-    } else {
-      elements.rotationInput.value = "0";
-    }
 
     if (selectedPrimitives.length === 0) {
       elements.selectionSummary.textContent = "Selected: none";
@@ -584,6 +543,10 @@ export function createApp(): void {
 
   function arraysEqual(left: Primitive[], right: Primitive[]): boolean {
     return left.length === right.length && left.every((primitive, index) => primitive === right[index]);
+  }
+
+  function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
+    return tool === "rect" || tool === "circle" || tool === "triangle";
   }
 
   function clampSelection(): void {

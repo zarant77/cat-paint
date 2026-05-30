@@ -85,7 +85,12 @@ button:hover {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.edit-tool-toolbar {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .primitive-toolbar .tool-button,
+.edit-tool-toolbar button,
 .action-toolbar button {
   font-size: 19px;
   line-height: 1;

@@ -1,0 +1,28 @@
+export const HOTKEYS = {
+  tools: {
+    rect: "1",
+    circle: "2",
+    triangle: "3",
+    fill: "f",
+    rotate: "r",
+    scale: "s",
+  },
+  actions: {
+    flipHorizontal: "h",
+    flipVertical: "v",
+    copy: "mod+c",
+    paste: "mod+v",
+    delete: "delete",
+    backspaceDelete: "backspace",
+    undo: "mod+z",
+    redo: "mod+shift+z",
+    redoAlt: "mod+y",
+    cancel: "escape",
+    sendBackward: "[",
+    bringForward: "]",
+    sendToBack: "shift+[",
+    bringToFront: "shift+]",
+    import: "mod+o",
+    showExport: "space",
+  },
+} as const;

@@ -1,8 +1,12 @@
 import type { ToolKind } from "../primitives/Primitive.js";
 import { isEditableTarget } from "../ui/isEditableTarget.js";
+import { HOTKEYS } from "./hotkeys.js";
+import { matchesHotkey } from "./matchesHotkey.js";
 
 export type KeyboardShortcutCallbacks = {
   onSelectTool: (tool: ToolKind) => void;
+  onFlipHorizontal: () => void;
+  onFlipVertical: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onCopy: () => void;
@@ -24,102 +28,123 @@ export function bindKeyboardShortcuts(callbacks: KeyboardShortcutCallbacks): voi
       return;
     }
 
-    const key = event.key.toLowerCase();
-    const isCommand = event.metaKey || event.ctrlKey;
-
-    if (isCommand && key === "z") {
+    if (matchesHotkey(event, HOTKEYS.actions.undo)) {
       event.preventDefault();
-
-      if (event.shiftKey) {
-        callbacks.onRedo();
-        return;
-      }
-
       callbacks.onUndo();
       return;
     }
 
-    if (isCommand && key === "y") {
+    if (matchesHotkey(event, HOTKEYS.actions.redo) || matchesHotkey(event, HOTKEYS.actions.redoAlt)) {
       event.preventDefault();
       callbacks.onRedo();
       return;
     }
 
-    if (isCommand && key === "c") {
+    if (matchesHotkey(event, HOTKEYS.actions.copy)) {
       event.preventDefault();
       callbacks.onCopy();
       return;
     }
 
-    if (isCommand && key === "v") {
+    if (matchesHotkey(event, HOTKEYS.actions.paste)) {
       event.preventDefault();
       callbacks.onPaste();
       return;
     }
 
-    if (isCommand && key === "o") {
+    if (matchesHotkey(event, HOTKEYS.actions.import)) {
       event.preventDefault();
       callbacks.onImport();
       return;
     }
 
-    if (event.key === " ") {
+    if (matchesHotkey(event, HOTKEYS.actions.showExport)) {
       event.preventDefault();
       callbacks.onShow();
       return;
     }
 
-    if (event.key === "Backspace" || event.key === "Delete") {
+    if (matchesHotkey(event, HOTKEYS.actions.delete) || matchesHotkey(event, HOTKEYS.actions.backspaceDelete)) {
       event.preventDefault();
       callbacks.onDelete();
       return;
     }
 
-    if (event.key === "Escape") {
+    if (matchesHotkey(event, HOTKEYS.actions.cancel)) {
       event.preventDefault();
       callbacks.onClearSelection();
       return;
     }
 
-    if (event.metaKey || event.ctrlKey || event.altKey) {
-      return;
-    }
-
-    if (event.code === "BracketLeft") {
+    if (matchesHotkey(event, HOTKEYS.actions.flipHorizontal)) {
       event.preventDefault();
-      callbacks.onMoveLayer(event.shiftKey ? "back" : "backward");
+      callbacks.onFlipHorizontal();
       return;
     }
 
-    if (event.code === "BracketRight") {
+    if (matchesHotkey(event, HOTKEYS.actions.flipVertical)) {
       event.preventDefault();
-      callbacks.onMoveLayer(event.shiftKey ? "front" : "forward");
+      callbacks.onFlipVertical();
       return;
     }
 
-    const tool = getToolShortcut(key);
-
-    if (!tool) {
+    if (matchesHotkey(event, HOTKEYS.actions.sendToBack)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("back");
       return;
     }
 
-    event.preventDefault();
-    callbacks.onSelectTool(tool);
+    if (matchesHotkey(event, HOTKEYS.actions.sendBackward)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("backward");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.actions.bringToFront)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("front");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.actions.bringForward)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("forward");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.rect)) {
+      event.preventDefault();
+      callbacks.onSelectTool("rect");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.circle)) {
+      event.preventDefault();
+      callbacks.onSelectTool("circle");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.triangle)) {
+      event.preventDefault();
+      callbacks.onSelectTool("triangle");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.fill)) {
+      event.preventDefault();
+      callbacks.onSelectTool("fill");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.rotate)) {
+      event.preventDefault();
+      callbacks.onSelectTool("rotate");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.tools.scale)) {
+      event.preventDefault();
+      callbacks.onSelectTool("scale");
+    }
   });
-}
-
-function getToolShortcut(key: string): ToolKind | null {
-  if (key === "1") {
-    return "rect";
-  }
-
-  if (key === "2") {
-    return "circle";
-  }
-
-  if (key === "3") {
-    return "triangle";
-  }
-
-  return null;
 }
