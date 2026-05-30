@@ -1,0 +1,128 @@
+.primitives-panel {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 10, 8, 0.92);
+  color: #f7e7c6;
+  overflow-y: auto;
+}
+
+.primitives-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.primitives-panel-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5c76b;
+}
+
+.primitive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.primitive-list-item {
+  display: grid;
+  grid-template-columns: 28px 22px 18px 1fr;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #f7e7c6;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.primitive-list-item:hover {
+  background: rgba(255, 199, 91, 0.1);
+  border-color: rgba(255, 199, 91, 0.2);
+}
+
+.primitive-list-item:focus-visible {
+  outline: 2px solid rgba(255, 199, 91, 0.85);
+  outline-offset: 2px;
+}
+
+.primitive-list-item.is-selected {
+  background: rgba(255, 199, 91, 0.18);
+  border-color: rgba(255, 199, 91, 0.75);
+}
+
+.primitive-list-index {
+  color: rgba(247, 231, 198, 0.65);
+  font-variant-numeric: tabular-nums;
+}
+
+.primitive-list-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f5c76b;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.primitive-list-color {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.primitive-list-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(247, 231, 198, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+.primitive-list-empty {
+  padding: 8px 6px;
+  color: rgba(247, 231, 198, 0.55);
+  font-size: 12px;
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 180px;
+  }
+
+  .toolbar {
+    grid-row: 1 / 3;
+  }
+
+  .workspace {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .primitives-panel {
+    grid-column: 2;
+    grid-row: 2;
+    width: auto;
+    height: auto;
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}

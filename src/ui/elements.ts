@@ -2,7 +2,7 @@ import { getElement } from "./dom.js";
 
 export type AppElements = {
   canvas: HTMLCanvasElement;
-  spriteIdInput: HTMLInputElement;
+  primitiveList: HTMLOListElement;
   canvasSizeInput: HTMLInputElement;
   colorInput: HTMLInputElement;
   colorHexInput: HTMLInputElement;
@@ -38,7 +38,7 @@ export type AppElements = {
 export function getAppElements(): AppElements {
   return {
     canvas: getElement<HTMLCanvasElement>("sprite-canvas"),
-    spriteIdInput: getElement<HTMLInputElement>("sprite-id-input"),
+    primitiveList: getElement<HTMLOListElement>("primitive-list"),
     canvasSizeInput: getElement<HTMLInputElement>("canvas-size-input"),
     colorInput: getElement<HTMLInputElement>("color-input"),
     colorHexInput: getElement<HTMLInputElement>("color-hex-input"),

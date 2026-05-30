@@ -21,8 +21,8 @@
         <label>
           Canvas
           <input id="canvas-size-input" type="text" value="64x64"
-            title="Canvas size: WIDTHxHEIGHT. Examples: 64x64, 128,128, 256 256."
-            aria-label="Canvas size" spellcheck="false" />
+            title="Canvas size: WIDTHxHEIGHT. Examples: 64x64, 128,128, 256 256." aria-label="Canvas size"
+            spellcheck="false" />
         </label>
       </section>
 
@@ -44,9 +44,8 @@
         <label class="inline-field color-field">
           Color
           <input id="color-input" type="color" value="#111111" title="Color swatch" aria-label="Color swatch" />
-          <input id="color-hex-input" type="text" value="#111111ff"
-            title="Color in #RRGGBBAA format. Alpha is 00–FF." aria-label="Color in #RRGGBBAA format"
-            spellcheck="false" />
+          <input id="color-hex-input" type="text" value="#111111ff" title="Color in #RRGGBBAA format. Alpha is 00–FF."
+            aria-label="Color in #RRGGBBAA format" spellcheck="false" />
         </label>
       </section>
 
@@ -82,6 +81,14 @@
     <section class="workspace" aria-label="Sprite canvas workspace">
       <canvas id="sprite-canvas"></canvas>
     </section>
+
+    <aside class="primitives-panel" aria-label="Primitives list">
+      <header class="primitives-panel-header">
+        <h2>Primitives</h2>
+      </header>
+
+      <ol id="primitive-list" class="primitive-list" role="listbox" aria-multiselectable="true"></ol>
+    </aside>
   </main>
 
   <dialog id="import-dialog" class="import-dialog">

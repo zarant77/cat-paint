@@ -1,6 +1,7 @@
 .app {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  grid-template-columns: 248px minmax(0, 1fr) 220px;
   width: 100vw;
   height: 100vh;
+  overflow: hidden;
 }

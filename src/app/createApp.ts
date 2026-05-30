@@ -5,6 +5,7 @@ import type { CreateToolKind, Primitive, ToolKind } from "../primitives/Primitiv
 import { bindKeyboardShortcuts } from "../shortcuts/keyboardShortcuts.js";
 import { bindToolbar } from "../ui/bindToolbar.js";
 import { bindClearDialog } from "../ui/clearDialog.js";
+import { bindPrimitiveList } from "../ui/primitiveList.js";
 import { getAppElements } from "../ui/elements.js";
 import { bindImportDialog } from "../ui/importDialog.js";
 import { applyHistorySnapshot, clonePrimitives, createHistorySnapshot, createInitialState } from "./AppState.js";
@@ -31,10 +32,12 @@ export function createApp(): void {
   const elements = getAppElements();
   const state = createInitialState();
   let primitiveClipboard: Primitive[] = [];
+  let renderPrimitiveList = (): void => {};
 
   const updateExport = (): void => {
     elements.exportOutput.value = buildCExport(state);
     updateSelectedPrimitiveControls();
+    renderPrimitiveList();
   };
 
   const selectTool = (tool: ToolKind): void => {
@@ -48,6 +51,30 @@ export function createApp(): void {
       button.classList.toggle("is-active", state.activeTool !== null && button.dataset.kind === state.activeTool);
     });
   };
+
+  function selectPrimitiveFromList(index: number, options: { shiftKey: boolean }): void {
+    if (!state.primitives[index]) {
+      return;
+    }
+
+    if (options.shiftKey) {
+      const selectedIndexes = new Set(getSelectedIndexes());
+
+      if (selectedIndexes.has(index)) {
+        selectedIndexes.delete(index);
+      } else {
+        selectedIndexes.add(index);
+      }
+
+      state.selectedPrimitiveIndexes = [...selectedIndexes].sort((a, b) => a - b);
+    } else {
+      state.selectedPrimitiveIndexes = [index];
+    }
+
+    updateSelectedPrimitiveControls();
+    renderPrimitiveList();
+    canvasView.render();
+  }
 
   const canvasView = new CanvasView(elements, state, {
     onRender: updateExport,
@@ -110,6 +137,12 @@ export function createApp(): void {
   const importDialog = bindImportDialog(elements, {
     onImport: applyImportedSprite,
   });
+
+  const primitiveList = bindPrimitiveList(elements, state, {
+    onSelectPrimitive: selectPrimitiveFromList,
+  });
+
+  renderPrimitiveList = primitiveList.render;
 
   bindToolbar(elements, {
     onSelectTool: selectTool,
