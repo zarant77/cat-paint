@@ -33,7 +33,7 @@ export function createInitialState(): AppState {
     spriteHeight: 64,
     pivotX: 32,
     pivotY: 32,
-    activeTool: "rect",
+    activeTool: null,
     activeKind: "rect",
     color: "#111111",
     alpha: 255,

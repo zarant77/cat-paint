@@ -1,6 +1,6 @@
 export type PrimitiveKind = "rect" | "circle" | "triangle";
 
-export type ToolKind = "select" | PrimitiveKind;
+export type ToolKind = PrimitiveKind | null;
 
 export type Primitive = {
   kind: PrimitiveKind;

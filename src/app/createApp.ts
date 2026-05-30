@@ -39,14 +39,14 @@ export function createApp(): void {
   };
 
   const selectTool = (tool: ToolKind): void => {
-    state.activeTool = tool;
+    state.activeTool = state.activeTool === tool ? null : tool;
 
-    if (tool !== "select") {
+    if (tool !== null) {
       state.activeKind = tool;
     }
 
     elements.kindButtons.forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.kind === tool);
+      button.classList.toggle("is-active", state.activeTool !== null && button.dataset.kind === state.activeTool);
     });
   };
 
@@ -223,6 +223,15 @@ export function createApp(): void {
     onShow: showExport,
     onDelete: deleteSelectedPrimitive,
     onClearSelection: () => {
+      if (state.activeTool !== null) {
+        state.activeTool = null;
+        elements.kindButtons.forEach((button) => {
+          button.classList.toggle("is-active", false);
+        });
+        canvasView.render();
+        return;
+      }
+
       state.selectedPrimitiveIndexes = [];
       canvasView.render();
     },

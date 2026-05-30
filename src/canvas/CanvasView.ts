@@ -11,6 +11,15 @@ export type CanvasViewCallbacks = {
   onRender: () => void;
 };
 
+type InteractionMode = "idle" | "creatingPrimitive" | "draggingPrimitives" | "draggingSelection";
+
+type RectBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
 export class CanvasView {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -21,6 +30,10 @@ export class CanvasView {
   private moveStart: Point | null = null;
   private movePrimitiveStarts: Array<{ index: number; point: Point }> = [];
   private pendingSingleSelectionIndex: number | null = null;
+  private selectionStart: Point | null = null;
+  private selectionCurrent: Point | null = null;
+  private isAddingToSelection = false;
+  private interactionMode: InteractionMode = "idle";
   private isMovingPrimitive = false;
 
   constructor(elements: AppElements, state: AppState, callbacks: CanvasViewCallbacks) {
@@ -41,24 +54,34 @@ export class CanvasView {
       const point = this.getSpritePoint(event);
       const hitIndexes = this.hitTestAllPrimitives(point);
 
-      if (this.state.activeTool === "select" || hitIndexes.length > 0) {
+      if (hitIndexes.length > 0) {
         this.beginSelection(point, event.shiftKey, hitIndexes);
         this.render();
         return;
       }
 
-      this.state.selectedPrimitiveIndexes = [];
-      this.dragStart = point;
-      this.draftPrimitive = null;
+      if (this.state.activeTool !== null) {
+        this.beginPrimitiveCreation(point);
+        return;
+      }
+
+      this.beginBoxSelection(point, event.shiftKey);
+      this.render();
     });
 
     this.canvas.addEventListener("pointermove", (event) => {
-      if (this.state.activeTool === "select") {
+      if (this.interactionMode === "draggingPrimitives") {
         this.moveSelection(this.getSpritePoint(event));
         return;
       }
 
-      if (!this.dragStart) {
+      if (this.interactionMode === "draggingSelection") {
+        this.selectionCurrent = this.getSpritePoint(event);
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode !== "creatingPrimitive" || !this.dragStart) {
         return;
       }
 
@@ -68,13 +91,19 @@ export class CanvasView {
     });
 
     this.canvas.addEventListener("pointerup", (event) => {
-      if (this.state.activeTool === "select") {
+      if (this.interactionMode === "draggingPrimitives") {
         this.endSelectionMove();
         this.render();
         return;
       }
 
-      if (!this.dragStart) {
+      if (this.interactionMode === "draggingSelection") {
+        this.endBoxSelection();
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode !== "creatingPrimitive" || !this.dragStart) {
         return;
       }
 
@@ -83,8 +112,10 @@ export class CanvasView {
 
       this.dragStart = null;
       this.draftPrimitive = null;
+      this.interactionMode = "idle";
 
       if (!isDrawablePrimitive(primitive)) {
+        this.interactionMode = "idle";
         this.render();
         return;
       }
@@ -96,9 +127,7 @@ export class CanvasView {
     });
 
     this.canvas.addEventListener("pointercancel", () => {
-      this.dragStart = null;
-      this.draftPrimitive = null;
-      this.endSelectionMove();
+      this.resetInteraction();
       this.render();
     });
   }
@@ -136,6 +165,7 @@ export class CanvasView {
       drawPrimitive(this.ctx, this.draftPrimitive);
     }
 
+    this.drawSelectionBox();
     this.drawSelection();
     this.callbacks.onRender();
   }
@@ -152,6 +182,26 @@ export class CanvasView {
     return hitIndexes;
   }
 
+  private beginPrimitiveCreation(point: Point): void {
+    this.resetInteraction();
+    this.interactionMode = "creatingPrimitive";
+    this.dragStart = point;
+    this.draftPrimitive = null;
+    this.state.selectedPrimitiveIndexes = [];
+  }
+
+  private beginBoxSelection(point: Point, isAddingToSelection: boolean): void {
+    this.resetInteraction();
+    this.interactionMode = "draggingSelection";
+    this.selectionStart = point;
+    this.selectionCurrent = point;
+    this.isAddingToSelection = isAddingToSelection;
+
+    if (!isAddingToSelection) {
+      this.state.selectedPrimitiveIndexes = [];
+    }
+  }
+
   private beginSelection(point: Point, isRangeSelection: boolean, hitIndexes: number[]): void {
     this.dragStart = null;
     this.draftPrimitive = null;
@@ -159,6 +209,7 @@ export class CanvasView {
     this.movePrimitiveStarts = [];
     this.pendingSingleSelectionIndex = null;
     this.isMovingPrimitive = false;
+    this.interactionMode = "draggingPrimitives";
 
     if (hitIndexes.length === 0) {
       this.state.selectedPrimitiveIndexes = [];
@@ -176,6 +227,7 @@ export class CanvasView {
       }
 
       this.state.selectedPrimitiveIndexes = sortIndexes([...selectedIndexes]);
+      this.interactionMode = "idle";
       return;
     }
 
@@ -246,6 +298,40 @@ export class CanvasView {
     this.moveStart = null;
     this.movePrimitiveStarts = [];
     this.pendingSingleSelectionIndex = null;
+    this.interactionMode = "idle";
+    this.isMovingPrimitive = false;
+  }
+
+  private endBoxSelection(): void {
+    if (!this.selectionStart || !this.selectionCurrent) {
+      this.resetInteraction();
+      return;
+    }
+
+    const selectionBounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
+    const selectedIndexes = this.state.primitives.flatMap((primitive, index) => {
+      return boundsIntersect(selectionBounds, getPrimitiveBounds(primitive)) ? [index] : [];
+    });
+
+    if (this.isAddingToSelection) {
+      this.state.selectedPrimitiveIndexes = sortIndexes([...this.state.selectedPrimitiveIndexes, ...selectedIndexes]);
+    } else {
+      this.state.selectedPrimitiveIndexes = selectedIndexes;
+    }
+
+    this.resetInteraction();
+  }
+
+  private resetInteraction(): void {
+    this.dragStart = null;
+    this.draftPrimitive = null;
+    this.moveStart = null;
+    this.movePrimitiveStarts = [];
+    this.pendingSingleSelectionIndex = null;
+    this.selectionStart = null;
+    this.selectionCurrent = null;
+    this.isAddingToSelection = false;
+    this.interactionMode = "idle";
     this.isMovingPrimitive = false;
   }
 
@@ -263,6 +349,23 @@ export class CanvasView {
     if (selectedIndexes.length > 1) {
       this.drawGroupSelection(selectedIndexes);
     }
+  }
+
+  private drawSelectionBox(): void {
+    if (this.interactionMode !== "draggingSelection" || !this.selectionStart || !this.selectionCurrent) {
+      return;
+    }
+
+    const bounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
+
+    this.ctx.save();
+    this.ctx.fillStyle = "rgb(255 180 84 / 0.12)";
+    this.ctx.strokeStyle = "#ffb454";
+    this.ctx.lineWidth = 1.5 / this.getCanvasScale();
+    this.ctx.setLineDash([5 / this.getCanvasScale(), 4 / this.getCanvasScale()]);
+    this.ctx.fillRect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    this.ctx.strokeRect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    this.ctx.restore();
   }
 
   private drawPrimitiveSelection(primitive: Primitive): void {
@@ -394,9 +497,7 @@ function toPrimitiveLocalPoint(point: Point, primitive: Primitive): Point {
   };
 }
 
-function getPrimitivesBounds(
-  primitives: Primitive[],
-): { minX: number; minY: number; maxX: number; maxY: number } | null {
+function getPrimitivesBounds(primitives: Primitive[]): RectBounds | null {
   if (primitives.length === 0) {
     return null;
   }
@@ -417,7 +518,7 @@ function getPrimitivesBounds(
   return { minX, minY, maxX, maxY };
 }
 
-function getPrimitiveBounds(primitive: Primitive): { minX: number; minY: number; maxX: number; maxY: number } {
+function getPrimitiveBounds(primitive: Primitive): RectBounds {
   if (primitive.kind === "circle") {
     return {
       minX: primitive.x - primitive.w,
@@ -437,4 +538,17 @@ function getPrimitiveBounds(primitive: Primitive): { minX: number; minY: number;
 
 function sortIndexes(indexes: number[]): number[] {
   return [...new Set(indexes)].sort((a, b) => a - b);
+}
+
+function normalizeBounds(start: Point, end: Point): RectBounds {
+  return {
+    minX: Math.min(start.x, end.x),
+    minY: Math.min(start.y, end.y),
+    maxX: Math.max(start.x, end.x),
+    maxY: Math.max(start.y, end.y),
+  };
+}
+
+function boundsIntersect(left: RectBounds, right: RectBounds): boolean {
+  return left.minX <= right.maxX && left.maxX >= right.minX && left.minY <= right.maxY && left.maxY >= right.minY;
 }
