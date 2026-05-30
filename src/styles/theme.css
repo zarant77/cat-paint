@@ -1,0 +1,25 @@
+:root {
+  --color-page-bg: #16130f;
+  --color-panel-bg: #211b15;
+  --color-card-bg: #2a231c;
+  --color-field-bg: #17130f;
+  --color-dialog-bg: #211b15;
+  --color-code-bg: #120f0c;
+
+  --color-text: #f4f1e8;
+  --color-text-muted: #b9ac9d;
+  --color-label: #d7cbbb;
+
+  --color-border: #3b3127;
+  --color-border-strong: #4d4034;
+  --color-accent: #ffb454;
+  --color-accent-dim: #513719;
+  --color-hover: #d79845;
+
+  --color-canvas-bg: #ffffff;
+  --color-checker-a: #ffffff;
+  --color-checker-b: #e7e7e7;
+  --color-grid: rgb(0 0 0 / 0.12);
+  --color-backdrop: rgb(0 0 0 / 0.65);
+  --color-shadow: rgb(0 0 0 / 0.45);
+}

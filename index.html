@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cat Paint</title>
+  <link rel="stylesheet" href="/src/styles/index.css" />
+</head>
+
+<body>
+  <main class="app">
+    <aside class="toolbar" aria-label="Sprite tools">
+      <header class="toolbar-header">
+        <h1>Cat Paint</h1>
+      </header>
+
+      <section class="toolbar-group" aria-label="Sprite settings">
+        <input id="sprite-id-input" type="hidden" value="player" />
+
+        <label>
+          Canvas
+          <input id="canvas-size-input" type="text" value="64x64"
+            title="Canvas size: WIDTHxHEIGHT. Examples: 64x64, 128,128, 256 256."
+            aria-label="Canvas size" spellcheck="false" />
+        </label>
+      </section>
+
+      <section class="toolbar-group primitive-toolbar" aria-label="Primitive tools">
+        <button class="tool-button is-active" type="button" data-kind="rect" title="Add rectangle — 1"
+          aria-label="Add rectangle">▭</button>
+        <button class="tool-button" type="button" data-kind="circle" title="Add circle — 2"
+          aria-label="Add circle">●</button>
+        <button class="tool-button" type="button" data-kind="triangle" title="Add triangle — 3"
+          aria-label="Add triangle">▲</button>
+      </section>
+
+      <section class="toolbar-group" aria-label="Primitive settings">
+        <label class="inline-field color-field">
+          Color
+          <input id="color-input" type="color" value="#111111" title="Color swatch" aria-label="Color swatch" />
+          <input id="color-hex-input" type="text" value="#111111ff"
+            title="Color in #RRGGBBAA format. Alpha is 00–FF." aria-label="Color in #RRGGBBAA format"
+            spellcheck="false" />
+        </label>
+      </section>
+
+      <section class="toolbar-group selected-primitive-toolbar" aria-label="Selected primitive">
+        <h2 id="selection-summary">Selected: none</h2>
+
+        <div class="compact-row">
+          <label>
+            Scale
+            <input id="scale-input" type="number" min="1" step="1" value="100"
+              title="Scale selected primitives by this percent on Enter or blur." aria-label="Scale percent" />
+          </label>
+          <label>
+            Rotation
+            <input id="rotation-input" type="number" step="1" value="0"
+              title="Rotate selected primitives in degrees. Single selection is absolute; group selection is a delta."
+              aria-label="Rotation degrees" />
+          </label>
+        </div>
+
+        <h2>Layer</h2>
+
+        <div class="button-row">
+          <button id="send-to-back-button" type="button" title="Send to back — Shift+[" aria-label="Send to back">⤓</button>
+          <button id="send-backward-button" type="button" title="Send backward — [" aria-label="Send backward">↓</button>
+          <button id="bring-forward-button" type="button" title="Bring forward — ]" aria-label="Bring forward">↑</button>
+          <button id="bring-to-front-button" type="button" title="Bring to front — Shift+]" aria-label="Bring to front">⤒</button>
+        </div>
+
+        <div class="button-row edit-actions">
+          <button id="copy-primitive-button" type="button" title="Copy selected primitives — Ctrl/Cmd+C"
+            aria-label="Copy selected primitives">⧉</button>
+          <button id="paste-primitive-button" type="button" title="Paste primitives — Ctrl/Cmd+V"
+            aria-label="Paste primitives">▣</button>
+          <button id="delete-primitive-button" type="button" title="Delete selected primitives — Delete / Backspace"
+            aria-label="Delete selected primitives">⌫</button>
+          <button id="undo-button" type="button" title="Undo — Ctrl/Cmd+Z" aria-label="Undo">↶</button>
+          <button id="redo-button" type="button" title="Redo — Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y" aria-label="Redo">↷</button>
+        </div>
+      </section>
+
+      <section class="toolbar-group action-toolbar export-actions" aria-label="Export actions">
+        <button id="clear-button" type="button" title="Clear sprite" aria-label="Clear sprite">⌧</button>
+        <button id="import-button" type="button" title="Import sprite — Ctrl/Cmd+O" aria-label="Import sprite">↙</button>
+        <button id="copy-button" type="button" title="Copy sprite export" aria-label="Copy sprite export">⎘</button>
+        <button id="show-button" type="button" title="Show sprite export — Space" aria-label="Show sprite export">👁</button>
+      </section>
+    </aside>
+
+    <section class="workspace" aria-label="Sprite canvas workspace">
+      <canvas id="sprite-canvas"></canvas>
+    </section>
+  </main>
+
+  <dialog id="import-dialog" class="import-dialog">
+    <form method="dialog" class="import-dialog-panel">
+      <header class="import-dialog-header">
+        <h2>Import sprite file</h2>
+      </header>
+
+      <textarea id="import-input" spellcheck="false" aria-label="Little One sprite C file"></textarea>
+      <p id="import-error" class="import-error" role="alert" hidden></p>
+
+      <div class="import-dialog-actions">
+        <button id="import-cancel-button" type="submit" value="cancel" title="Cancel import">Cancel</button>
+        <button id="import-confirm-button" type="button" title="Import pasted sprite file">Import</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="export-dialog" class="export-dialog">
+    <form method="dialog" class="export-dialog-panel">
+      <header class="export-dialog-header">
+        <h2>Little One sprite file</h2>
+        <button type="submit" title="Close" aria-label="Close">×</button>
+      </header>
+
+      <textarea id="export-output" spellcheck="false" readonly></textarea>
+    </form>
+  </dialog>
+
+  <dialog id="clear-dialog" class="confirm-dialog">
+    <form method="dialog" class="confirm-dialog-panel">
+      <h2>Clear sprite?</h2>
+      <p>This will remove all primitives from the current sprite.</p>
+      <div class="confirm-dialog-actions">
+        <button id="clear-cancel-button" type="submit" value="cancel" title="Cancel clear" autofocus>Cancel</button>
+        <button id="clear-confirm-button" class="destructive-button" type="button" title="Clear sprite">Clear</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

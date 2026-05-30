@@ -1,0 +1,151 @@
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  background: var(--color-panel-bg);
+  border-right: 1px solid var(--color-border);
+}
+
+.toolbar-header h1 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.toolbar-header p {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.toolbar-group {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  background: var(--color-card-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.toolbar-group label {
+  display: grid;
+  gap: 4px;
+  color: var(--color-label);
+  font-size: 11px;
+}
+
+.toolbar-group h2 {
+  margin: 0;
+  color: var(--color-label);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.toolbar-group input,
+.toolbar-group select,
+.toolbar-group button {
+  width: 100%;
+}
+
+input,
+select,
+button {
+  min-height: 30px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  color: var(--color-text);
+  background: var(--color-field-bg);
+}
+
+input[type="color"] {
+  padding: 2px;
+}
+
+button {
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  border-color: var(--color-hover);
+}
+
+.tool-button.is-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+}
+
+.primitive-toolbar {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.primitive-toolbar .tool-button,
+.action-toolbar button {
+  font-size: 19px;
+  line-height: 1;
+}
+
+.action-toolbar {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.export-actions {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.button-row:has(> :nth-child(3)) {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.button-row:has(> :nth-child(4)) {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.button-row:has(> :nth-child(5)) {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.compact-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.color-field {
+  grid-template-columns: auto 34px 1fr;
+  align-items: center;
+}
+
+.color-field input[type="color"] {
+  width: 34px;
+}
+
+.is-invalid {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px #ef4444;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

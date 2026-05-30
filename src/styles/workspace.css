@@ -1,0 +1,15 @@
+.workspace {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at center, var(--color-card-bg) 0, var(--color-page-bg) 70%);
+}
+
+#sprite-canvas {
+  display: block;
+  image-rendering: pixelated;
+  background: var(--color-canvas-bg);
+  box-shadow: 0 24px 80px var(--color-shadow);
+}
