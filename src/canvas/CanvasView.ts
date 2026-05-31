@@ -6,6 +6,7 @@ import {
   getEditablePrimitiveNodeEntries,
   getPrimitiveCommandsForNode,
   getSceneNodeById,
+  getVisiblePrimitiveNodeEntries,
 } from "../document/CatPaintDocument.js";
 import type { AppElements } from "../ui/elements.js";
 import type { CreateToolKind, Point, Primitive, ToolKind } from "../primitives/Primitive.js";
@@ -16,6 +17,7 @@ import { getSpritePoint } from "./pointer.js";
 
 export type CanvasViewCallbacks = {
   onRender: () => void;
+  onPickColor: (color: string, alpha: number) => void;
 };
 
 type InteractionMode =
@@ -115,6 +117,14 @@ export class CanvasView {
     this.canvas.addEventListener("pointerdown", (event) => {
       const point = this.getSpritePoint(event);
       this.hoverPoint = point;
+
+      if (this.state.activeTool === "eyedropper") {
+        this.clickCycleState = null;
+        this.canvas.setPointerCapture(event.pointerId);
+        this.updateCursor();
+        return;
+      }
+
       const topTarget = this.hitTestTopPrimitive(point);
 
       if (topTarget?.locked) {
@@ -179,6 +189,12 @@ export class CanvasView {
 
     this.canvas.addEventListener("pointerup", (event) => {
       this.hoverPoint = this.getSpritePoint(event);
+
+      if (this.state.activeTool === "eyedropper") {
+        this.pickColorAtPoint(this.hoverPoint);
+        this.render();
+        return;
+      }
 
       if (this.pointerStartSpritePoint && this.pointerStartClientPoint) {
         this.endPointerPress(this.hoverPoint, getClientPoint(event));
@@ -730,6 +746,10 @@ export class CanvasView {
       return "default";
     }
 
+    if (this.state.activeTool === "eyedropper") {
+      return "crosshair";
+    }
+
     const lockedTarget = this.hitTestTopPrimitive(this.hoverPoint);
 
     if (lockedTarget?.locked) {
@@ -834,6 +854,30 @@ export class CanvasView {
     const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
 
     return getPrimitivesBounds(selectedPrimitives.map((selectedPrimitive) => selectedPrimitive.primitive));
+  }
+
+  private pickColorAtPoint(point: Point): void {
+    const primitive = this.getTopmostVisiblePrimitive(point);
+
+    if (!primitive) {
+      return;
+    }
+
+    this.callbacks.onPickColor(primitive.color, primitive.alpha);
+  }
+
+  private getTopmostVisiblePrimitive(point: Point): Primitive | null {
+    const entries = getVisiblePrimitiveNodeEntries(this.state.nodes);
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const primitive = entries[index].command;
+
+      if (isPointInPrimitive(point, primitive)) {
+        return primitive;
+      }
+    }
+
+    return null;
   }
 
   private drawSelection(): void {

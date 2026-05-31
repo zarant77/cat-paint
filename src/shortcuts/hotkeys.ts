@@ -4,6 +4,7 @@ export const HOTKEYS = {
     circle: "2",
     triangle: "3",
     fill: "f",
+    eyedropper: "i",
     rotate: "r",
     scale: "s",
   },

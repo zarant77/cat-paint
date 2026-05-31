@@ -148,6 +148,12 @@ export function bindKeyboardShortcuts(callbacks: KeyboardShortcutCallbacks): voi
       return;
     }
 
+    if (matchesHotkey(event, HOTKEYS.tools.eyedropper)) {
+      event.preventDefault();
+      callbacks.onSelectTool("eyedropper");
+      return;
+    }
+
     if (matchesHotkey(event, HOTKEYS.tools.rotate)) {
       event.preventDefault();
       callbacks.onSelectTool("rotate");

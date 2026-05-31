@@ -117,6 +117,7 @@ function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {
     value === "circle" ||
     value === "triangle" ||
     value === "fill" ||
+    value === "eyedropper" ||
     value === "rotate" ||
     value === "scale"
   );
@@ -127,8 +128,9 @@ function applyTooltips(elements: AppElements): void {
   setButtonTooltip(elements.kindButtons[1], "Add circle", HOTKEYS.tools.circle);
   setButtonTooltip(elements.kindButtons[2], "Add triangle", HOTKEYS.tools.triangle);
   setButtonTooltip(elements.kindButtons[3], "Fill primitive", HOTKEYS.tools.fill);
-  setButtonTooltip(elements.kindButtons[4], "Rotate selection", HOTKEYS.tools.rotate);
-  setButtonTooltip(elements.kindButtons[5], "Scale selection", HOTKEYS.tools.scale);
+  setButtonTooltip(elements.kindButtons[4], "Pick color", HOTKEYS.tools.eyedropper);
+  setButtonTooltip(elements.kindButtons[5], "Rotate selection", HOTKEYS.tools.rotate);
+  setButtonTooltip(elements.kindButtons[6], "Scale selection", HOTKEYS.tools.scale);
   setButtonTooltip(elements.flipHorizontalButton, "Flip horizontal", HOTKEYS.actions.flipHorizontal);
   setButtonTooltip(elements.flipVerticalButton, "Flip vertical", HOTKEYS.actions.flipVertical);
   setButtonTooltip(elements.sendToBackButton, "Send to back", HOTKEYS.actions.sendToBack);

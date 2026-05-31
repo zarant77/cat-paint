@@ -2,7 +2,7 @@ export type PrimitiveKind = "rect" | "circle" | "triangle";
 
 export type CreateToolKind = PrimitiveKind;
 
-export type EditToolKind = "fill" | "rotate" | "scale";
+export type EditToolKind = "fill" | "rotate" | "scale" | "eyedropper";
 
 export type ToolKind = CreateToolKind | EditToolKind | null;
 

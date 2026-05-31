@@ -105,8 +105,16 @@ export function createApp(): void {
     canvasView.render();
   }
 
+  function applyPickedColor(color: string, alpha: number): void {
+    state.color = color;
+    state.alpha = clampAlpha(alpha);
+    syncColorInputs();
+    updateExport();
+  }
+
   const canvasView = new CanvasView(elements, state, {
     onRender: updateExport,
+    onPickColor: applyPickedColor,
   });
 
   const clearSprite = (): void => {
@@ -980,4 +988,12 @@ function removeSelectedNodes(nodes: readonly SceneNode[], selectedIds: ReadonlyS
 
     return nextNode ? [nextNode] : [];
   });
+}
+
+function clampAlpha(alpha: number): number {
+  if (!Number.isFinite(alpha)) {
+    return 255;
+  }
+
+  return Math.max(0, Math.min(255, Math.round(alpha)));
 }
