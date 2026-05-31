@@ -12,6 +12,8 @@ export type ToolbarCallbacks = {
   onFlipHorizontal: () => void;
   onFlipVertical: () => void;
   onMoveSelectedLayer: (target: "back" | "backward" | "forward" | "front") => void;
+  onGroup: () => void;
+  onUngroup: () => void;
   onCopyPrimitive: () => void;
   onPastePrimitive: () => void;
   onDeletePrimitive: () => void;
@@ -19,7 +21,6 @@ export type ToolbarCallbacks = {
   onRedo: () => void;
   onClear: () => void;
   onImport: () => void;
-  onCopy: () => Promise<void>;
   onShow: () => void;
   onUpdateExport: () => void;
 };
@@ -98,6 +99,8 @@ export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks):
     callbacks.onMoveSelectedLayer("front");
   });
 
+  elements.groupButton.addEventListener("click", callbacks.onGroup);
+  elements.ungroupButton.addEventListener("click", callbacks.onUngroup);
   elements.copyPrimitiveButton.addEventListener("click", callbacks.onCopyPrimitive);
   elements.pastePrimitiveButton.addEventListener("click", callbacks.onPastePrimitive);
   elements.deletePrimitiveButton.addEventListener("click", callbacks.onDeletePrimitive);
@@ -105,11 +108,6 @@ export function bindToolbar(elements: AppElements, callbacks: ToolbarCallbacks):
   elements.redoButton.addEventListener("click", callbacks.onRedo);
   elements.clearButton.addEventListener("click", callbacks.onClear);
   elements.importButton.addEventListener("click", callbacks.onImport);
-
-  elements.copyButton.addEventListener("click", () => {
-    void callbacks.onCopy();
-  });
-
   elements.showButton.addEventListener("click", callbacks.onShow);
 }
 
@@ -137,6 +135,8 @@ function applyTooltips(elements: AppElements): void {
   setButtonTooltip(elements.sendBackwardButton, "Send backward", HOTKEYS.actions.sendBackward);
   setButtonTooltip(elements.bringForwardButton, "Bring forward", HOTKEYS.actions.bringForward);
   setButtonTooltip(elements.bringToFrontButton, "Bring to front", HOTKEYS.actions.bringToFront);
+  elements.groupButton.title = "Group selected nodes";
+  elements.ungroupButton.title = "Ungroup selected group";
   setButtonTooltip(elements.copyPrimitiveButton, "Copy selected primitives", HOTKEYS.actions.copy);
   setButtonTooltip(elements.pastePrimitiveButton, "Paste primitives", HOTKEYS.actions.paste);
   elements.deletePrimitiveButton.title = `Delete selected primitives - ${getShortcutLabel(
@@ -148,8 +148,7 @@ function applyTooltips(elements: AppElements): void {
   )}`;
   elements.clearButton.title = "Clear sprite";
   setButtonTooltip(elements.importButton, "Import sprite", HOTKEYS.actions.import);
-  elements.copyButton.title = "Copy sprite export";
-  setButtonTooltip(elements.showButton, "Show sprite export", HOTKEYS.actions.showExport);
+  setButtonTooltip(elements.showButton, "Export sprite", HOTKEYS.actions.showExport);
 }
 
 function setButtonTooltip(button: HTMLButtonElement | undefined, label: string, shortcut: string): void {

@@ -1,5 +1,6 @@
 import { ImportError } from "../import/ImportError.js";
-import { parseSpriteC } from "../import/parseSpriteC.js";
+import { parseSpriteDocument } from "../import/parseSpriteDocument.js";
+import type { CatPaintDocument } from "../document/CatPaintDocument.js";
 import type { ParsedSprite } from "../import/parseSpriteC.js";
 import type { AppElements } from "./elements.js";
 
@@ -9,7 +10,7 @@ export type ImportDialogController = {
 
 export function bindImportDialog(
   elements: AppElements,
-  callbacks: { onImport: (sprite: ParsedSprite) => void },
+  callbacks: { onImport: (sprite: ParsedSprite | CatPaintDocument) => void },
 ): ImportDialogController {
   const clearError = (): void => {
     elements.importError.hidden = true;
@@ -25,7 +26,7 @@ export function bindImportDialog(
 
   elements.importConfirmButton.addEventListener("click", () => {
     try {
-      const sprite = parseSpriteC(elements.importInput.value);
+      const sprite = parseSpriteDocument(elements.importInput.value);
       callbacks.onImport(sprite);
       elements.importDialog.close("import");
     } catch (error) {

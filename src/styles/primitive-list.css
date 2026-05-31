@@ -36,11 +36,11 @@
 
 .primitive-list-item {
   display: grid;
-  grid-template-columns: 28px 22px 18px 1fr;
+  grid-template-columns: 16px 20px 20px 18px minmax(0, 1fr) 20px 20px 20px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-height: 28px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px calc(6px + var(--node-depth, 0) * 16px);
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
@@ -48,6 +48,20 @@
   font-size: 12px;
   color: #f7e7c6;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.primitive-list-item.is-group {
+  font-weight: 700;
+}
+
+.primitive-list-item.is-hidden-node {
+  color: rgba(247, 231, 198, 0.52);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.primitive-list-item.is-locked-node {
+  border-style: dashed;
+  box-shadow: inset 2px 0 0 rgba(247, 231, 198, 0.22);
 }
 
 .primitive-list-item:hover {
@@ -65,9 +79,19 @@
   border-color: rgba(255, 199, 91, 0.75);
 }
 
-.primitive-list-index {
-  color: rgba(247, 231, 198, 0.65);
-  font-variant-numeric: tabular-nums;
+.primitive-list-toggle {
+  width: 16px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  color: rgba(247, 231, 198, 0.75);
+  background: transparent;
+  line-height: 1;
+}
+
+.primitive-list-toggle:disabled {
+  cursor: default;
+  opacity: 0;
 }
 
 .primitive-list-kind {
@@ -75,24 +99,112 @@
   align-items: center;
   justify-content: center;
   color: #f5c76b;
-  font-size: 13px;
   line-height: 1;
 }
 
-.primitive-list-color {
-  width: 12px;
-  height: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+.primitive-list-group-marker {
+  font-size: 13px;
 }
 
-.primitive-list-size {
+.primitive-list-shape-marker {
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.42);
+}
+
+.primitive-list-shape-marker.is-rect {
+  border-radius: 3px;
+}
+
+.primitive-list-shape-marker.is-circle {
+  border-radius: 999px;
+}
+
+.primitive-list-shape-marker.is-triangle {
+  width: 0;
+  height: 0;
+  border-right: 7px solid transparent;
+  border-bottom: 13px solid currentColor;
+  border-left: 7px solid transparent;
+  border-top: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.primitive-list-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgba(247, 231, 198, 0.9);
-  font-variant-numeric: tabular-nums;
+}
+
+.primitive-list-action-button,
+.primitive-list-rename-button {
+  width: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  color: rgba(247, 231, 198, 0.75);
+  background: transparent;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.primitive-list-action-button {
+  opacity: 0.82;
+}
+
+.primitive-list-visibility-button,
+.primitive-list-lock-button {
+  color: rgba(247, 231, 198, 0.7);
+}
+
+.primitive-list-item.is-hidden-node .primitive-list-visibility-button,
+.primitive-list-item.is-locked-node .primitive-list-lock-button {
+  color: #f5c76b;
+}
+
+.primitive-list-rename-button,
+.primitive-list-move-button {
+  opacity: 0;
+}
+
+.primitive-list-item:hover .primitive-list-rename-button,
+.primitive-list-item:focus-within .primitive-list-rename-button,
+.primitive-list-item:hover .primitive-list-move-button,
+.primitive-list-item:focus-within .primitive-list-move-button {
+  opacity: 1;
+}
+
+.primitive-list-action-button:hover,
+.primitive-list-action-button:focus-visible,
+.primitive-list-rename-button:hover,
+.primitive-list-rename-button:focus-visible {
+  border-color: rgba(255, 199, 91, 0.45);
+  color: #f7e7c6;
+  background: rgba(255, 199, 91, 0.12);
+}
+
+.primitive-list-action-button:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
+.primitive-list-name-input {
+  min-width: 0;
+  width: 100%;
+  height: 24px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 199, 91, 0.85);
+  border-radius: 6px;
+  color: #f7e7c6;
+  background: rgba(12, 10, 8, 0.95);
+  font: inherit;
+}
+
+.primitive-list-name-input:focus {
+  outline: 2px solid rgba(255, 199, 91, 0.85);
+  outline-offset: 1px;
 }
 
 .primitive-list-empty {

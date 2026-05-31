@@ -1,3 +1,5 @@
+import type { SceneNode } from "../document/CatPaintDocument.js";
+import { createPrimitiveNodes } from "../document/CatPaintDocument.js";
 import type { Primitive, PrimitiveKind } from "../primitives/Primitive.js";
 import { sanitizeSpriteId } from "../utils/naming.js";
 import { ImportError } from "./ImportError.js";
@@ -8,7 +10,7 @@ export type ParsedSprite = {
   spriteHeight: number;
   pivotX: number;
   pivotY: number;
-  primitives: Primitive[];
+  nodes: SceneNode[];
 };
 
 const commandKinds: Record<string, PrimitiveKind> = {
@@ -39,7 +41,7 @@ export function parseSpriteC(source: string): ParsedSprite {
     spriteHeight: height,
     pivotX,
     pivotY,
-    primitives,
+    nodes: createPrimitiveNodes(primitives),
   };
 }
 

@@ -22,6 +22,8 @@ export const HOTKEYS = {
     bringForward: "]",
     sendToBack: "shift+[",
     bringToFront: "shift+]",
+    moveLayerUp: "alt+arrowup",
+    moveLayerDown: "alt+arrowdown",
     import: "mod+o",
     showExport: "space",
   },

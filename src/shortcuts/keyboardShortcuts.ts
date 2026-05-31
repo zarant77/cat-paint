@@ -112,6 +112,18 @@ export function bindKeyboardShortcuts(callbacks: KeyboardShortcutCallbacks): voi
       return;
     }
 
+    if (matchesHotkey(event, HOTKEYS.actions.moveLayerUp)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("backward");
+      return;
+    }
+
+    if (matchesHotkey(event, HOTKEYS.actions.moveLayerDown)) {
+      event.preventDefault();
+      callbacks.onMoveLayer("forward");
+      return;
+    }
+
     if (matchesHotkey(event, HOTKEYS.tools.rect)) {
       event.preventDefault();
       callbacks.onSelectTool("rect");

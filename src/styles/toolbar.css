@@ -101,7 +101,7 @@ button:hover {
 }
 
 .export-actions {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .button-row {

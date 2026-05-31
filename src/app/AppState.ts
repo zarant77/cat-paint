@@ -1,4 +1,6 @@
-import type { Primitive, PrimitiveKind, ToolKind } from "../primitives/Primitive.js";
+import type { SceneNode } from "../document/CatPaintDocument.js";
+import { cloneNodes } from "../document/CatPaintDocument.js";
+import type { PrimitiveKind, ToolKind } from "../primitives/Primitive.js";
 
 export type AppState = {
   spriteId: string;
@@ -10,10 +12,11 @@ export type AppState = {
   activeKind: PrimitiveKind;
   color: string;
   alpha: number;
-  primitives: Primitive[];
+  nodes: SceneNode[];
   undoStack: HistorySnapshot[];
   redoStack: HistorySnapshot[];
-  selectedPrimitiveIndexes: number[];
+  selectedNodeIds: string[];
+  collapsedGroupIds: string[];
 };
 
 export type HistorySnapshot = {
@@ -22,8 +25,8 @@ export type HistorySnapshot = {
   spriteHeight: number;
   pivotX: number;
   pivotY: number;
-  primitives: Primitive[];
-  selectedPrimitiveIndexes: number[];
+  nodes: SceneNode[];
+  selectedNodeIds: string[];
 };
 
 export function createInitialState(): AppState {
@@ -37,15 +40,12 @@ export function createInitialState(): AppState {
     activeKind: "rect",
     color: "#111111",
     alpha: 255,
-    primitives: [],
+    nodes: [],
     undoStack: [],
     redoStack: [],
-    selectedPrimitiveIndexes: [],
+    selectedNodeIds: [],
+    collapsedGroupIds: [],
   };
-}
-
-export function clonePrimitives(primitives: Primitive[]): Primitive[] {
-  return primitives.map((primitive) => ({ ...primitive }));
 }
 
 export function createHistorySnapshot(state: AppState): HistorySnapshot {
@@ -55,8 +55,8 @@ export function createHistorySnapshot(state: AppState): HistorySnapshot {
     spriteHeight: state.spriteHeight,
     pivotX: state.pivotX,
     pivotY: state.pivotY,
-    primitives: clonePrimitives(state.primitives),
-    selectedPrimitiveIndexes: [...state.selectedPrimitiveIndexes],
+    nodes: cloneNodes(state.nodes),
+    selectedNodeIds: [...state.selectedNodeIds],
   };
 }
 
@@ -66,6 +66,6 @@ export function applyHistorySnapshot(state: AppState, snapshot: HistorySnapshot)
   state.spriteHeight = snapshot.spriteHeight;
   state.pivotX = snapshot.pivotX;
   state.pivotY = snapshot.pivotY;
-  state.primitives = clonePrimitives(snapshot.primitives);
-  state.selectedPrimitiveIndexes = [...snapshot.selectedPrimitiveIndexes];
+  state.nodes = cloneNodes(snapshot.nodes);
+  state.selectedNodeIds = [...snapshot.selectedNodeIds];
 }

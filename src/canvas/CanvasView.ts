@@ -1,5 +1,12 @@
 import type { AppState } from "../app/AppState.js";
 import { createHistorySnapshot } from "../app/AppState.js";
+import {
+  createPrimitiveNode,
+  flattenNodes,
+  getEditablePrimitiveNodeEntries,
+  getPrimitiveCommandsForNode,
+  getSceneNodeById,
+} from "../document/CatPaintDocument.js";
 import type { AppElements } from "../ui/elements.js";
 import type { CreateToolKind, Point, Primitive, ToolKind } from "../primitives/Primitive.js";
 import { createPrimitiveFromDrag } from "./primitiveFactory.js";
@@ -27,7 +34,7 @@ type RectBounds = {
 };
 
 type TransformPrimitiveStart = {
-  index: number;
+  nodeId: string;
   primitive: Primitive;
 };
 
@@ -38,6 +45,34 @@ type TransformStart = {
   primitives: TransformPrimitiveStart[];
 };
 
+type ClickCycleState = {
+  point: Point;
+  hitNodeIds: string[];
+};
+
+type CanvasCursor =
+  | "default"
+  | "grab"
+  | "grabbing"
+  | "not-allowed"
+  | "crosshair"
+  | "ew-resize"
+  | "ns-resize"
+  | "nwse-resize"
+  | "nesw-resize";
+
+type ScaleHandleHit = {
+  cursor: CanvasCursor;
+};
+
+type PrimitiveHitTarget = {
+  locked: boolean;
+};
+
+const CLICK_THRESHOLD_PX = 4;
+const HANDLE_HIT_RADIUS_PX = 8;
+const ROTATE_HANDLE_OFFSET_PX = 24;
+
 export class CanvasView {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -46,8 +81,7 @@ export class CanvasView {
   private dragStart: Point | null = null;
   private draftPrimitive: Primitive | null = null;
   private moveStart: Point | null = null;
-  private movePrimitiveStarts: Array<{ index: number; point: Point }> = [];
-  private pendingSingleSelectionIndex: number | null = null;
+  private movePrimitiveStarts: Array<{ nodeId: string; point: Point }> = [];
   private selectionStart: Point | null = null;
   private selectionCurrent: Point | null = null;
   private isAddingToSelection = false;
@@ -55,6 +89,15 @@ export class CanvasView {
   private isMovingPrimitive = false;
   private transformStart: TransformStart | null = null;
   private hasTransformedSelection = false;
+  private pointerStartSpritePoint: Point | null = null;
+  private pointerStartClientPoint: Point | null = null;
+  private pointerStartHitNodeIds: string[] = [];
+  private pointerStartSelectedNodeIds: string[] = [];
+  private pointerStartShiftKey = false;
+  private hasExceededClickThreshold = false;
+  private clickCycleState: ClickCycleState | null = null;
+  private hoverPoint: Point | null = null;
+  private activeInteractionCursor: CanvasCursor | null = null;
 
   constructor(elements: AppElements, state: AppState, callbacks: CanvasViewCallbacks) {
     this.canvas = elements.canvas;
@@ -70,23 +113,20 @@ export class CanvasView {
     });
 
     this.canvas.addEventListener("pointerdown", (event) => {
-      this.canvas.setPointerCapture(event.pointerId);
       const point = this.getSpritePoint(event);
-      const hitIndexes = this.hitTestAllPrimitives(point);
+      this.hoverPoint = point;
+      const topTarget = this.hitTestTopPrimitive(point);
 
-      if (this.state.activeTool === "fill") {
-        this.fillTopmostPrimitive(hitIndexes);
+      if (topTarget?.locked) {
+        this.updateCursor();
         return;
       }
+
+      this.canvas.setPointerCapture(event.pointerId);
+      const hitNodeIds = this.hitTestAllPrimitives(point);
 
       if (this.state.activeTool === "rotate" || this.state.activeTool === "scale") {
-        this.beginTransform(point, hitIndexes);
-        this.render();
-        return;
-      }
-
-      if (hitIndexes.length > 0) {
-        this.beginSelection(point, event.shiftKey, hitIndexes);
+        this.beginTransform(point, hitNodeIds);
         this.render();
         return;
       }
@@ -96,42 +136,56 @@ export class CanvasView {
         return;
       }
 
-      this.beginBoxSelection(point, event.shiftKey);
-      this.render();
+      this.beginPointerPress(point, getClientPoint(event), hitNodeIds, event.shiftKey);
     });
 
     this.canvas.addEventListener("pointermove", (event) => {
+      this.hoverPoint = this.getSpritePoint(event);
+
+      if (this.pointerStartSpritePoint && this.pointerStartClientPoint) {
+        this.continuePointerPress(this.hoverPoint, getClientPoint(event));
+        return;
+      }
+
       if (this.interactionMode === "draggingPrimitives") {
-        this.moveSelection(this.getSpritePoint(event));
+        this.moveSelection(this.hoverPoint);
         return;
       }
 
       if (this.interactionMode === "draggingSelection") {
-        this.selectionCurrent = this.getSpritePoint(event);
+        this.selectionCurrent = this.hoverPoint;
         this.render();
         return;
       }
 
       if (this.interactionMode === "rotatingSelection") {
-        this.rotateSelection(this.getSpritePoint(event));
+        this.rotateSelection(this.hoverPoint);
         return;
       }
 
       if (this.interactionMode === "scalingSelection") {
-        this.scaleSelection(this.getSpritePoint(event));
+        this.scaleSelection(this.hoverPoint);
         return;
       }
 
       if (this.interactionMode !== "creatingPrimitive" || !this.dragStart) {
+        this.updateCursor();
         return;
       }
 
-      const current = this.getSpritePoint(event);
-      this.draftPrimitive = createPrimitiveFromDrag(this.state, this.dragStart, current);
+      this.draftPrimitive = createPrimitiveFromDrag(this.state, this.dragStart, this.hoverPoint);
       this.render();
     });
 
     this.canvas.addEventListener("pointerup", (event) => {
+      this.hoverPoint = this.getSpritePoint(event);
+
+      if (this.pointerStartSpritePoint && this.pointerStartClientPoint) {
+        this.endPointerPress(this.hoverPoint, getClientPoint(event));
+        this.render();
+        return;
+      }
+
       if (this.interactionMode === "draggingPrimitives") {
         this.endSelectionMove();
         this.render();
@@ -154,23 +208,34 @@ export class CanvasView {
         return;
       }
 
-      const current = this.getSpritePoint(event);
-      const primitive = createPrimitiveFromDrag(this.state, this.dragStart, current);
+      const primitive = createPrimitiveFromDrag(this.state, this.dragStart, this.hoverPoint);
 
       this.dragStart = null;
       this.draftPrimitive = null;
       this.interactionMode = "idle";
+      this.activeInteractionCursor = null;
 
       if (!isDrawablePrimitive(primitive)) {
         this.interactionMode = "idle";
+        this.activeInteractionCursor = null;
         this.render();
         return;
       }
 
       this.state.undoStack.push(createHistorySnapshot(this.state));
-      this.state.primitives.push(primitive);
+      this.state.nodes.push(createPrimitiveNode(primitive, getEditablePrimitiveNodeEntries(this.state.nodes).length));
       this.state.redoStack = [];
       this.render();
+    });
+
+    this.canvas.addEventListener("pointerleave", () => {
+      if (this.hasActiveInteraction()) {
+        this.updateCursor();
+        return;
+      }
+
+      this.hoverPoint = null;
+      this.updateCursor();
     });
 
     this.canvas.addEventListener("pointercancel", () => {
@@ -204,7 +269,7 @@ export class CanvasView {
     this.drawCheckerboard();
     this.drawGrid();
 
-    for (const primitive of this.state.primitives) {
+    for (const primitive of flattenNodes(this.state.nodes)) {
       drawPrimitive(this.ctx, primitive);
     }
 
@@ -214,23 +279,35 @@ export class CanvasView {
 
     this.drawSelectionBox();
     this.drawSelection();
+    this.updateCursor();
     this.callbacks.onRender();
   }
 
-  hitTestAllPrimitives(point: Point): number[] {
-    const hitIndexes: number[] = [];
+  refreshCursor(): void {
+    this.updateCursor();
+  }
 
-    for (let index = this.state.primitives.length - 1; index >= 0; index -= 1) {
-      if (isPointInPrimitive(point, this.state.primitives[index])) {
-        hitIndexes.push(index);
+  hitTestAllPrimitives(point: Point): string[] {
+    const hitNodeIds: string[] = [];
+    const topTarget = this.hitTestTopPrimitive(point);
+
+    if (topTarget?.locked) {
+      return hitNodeIds;
+    }
+
+    const entries = getEditablePrimitiveNodeEntries(this.state.nodes).filter((entry) => !entry.locked);
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (isPointInPrimitive(point, entries[index].command)) {
+        hitNodeIds.push(entries[index].node.id);
       }
     }
 
-    return hitIndexes;
+    return hitNodeIds;
   }
 
-  private fillTopmostPrimitive(hitIndexes: number[]): void {
-    const primitive = this.state.primitives[hitIndexes[0]];
+  private fillTopmostPrimitive(hitNodeIds: string[]): void {
+    const primitive = getEditableCommand(this.state, hitNodeIds[0]);
 
     if (!primitive || (primitive.color === this.state.color && primitive.alpha === this.state.alpha)) {
       return;
@@ -243,22 +320,24 @@ export class CanvasView {
     this.render();
   }
 
-  private beginTransform(point: Point, hitIndexes: number[]): void {
+  private beginTransform(point: Point, hitNodeIds: string[]): void {
     this.resetInteraction();
 
-    if (this.state.selectedPrimitiveIndexes.length === 0 && hitIndexes.length > 0) {
-      this.state.selectedPrimitiveIndexes = [hitIndexes[0]];
+    if (this.state.selectedNodeIds.length === 0 && hitNodeIds.length > 0) {
+      const firstHitNodeId = hitNodeIds[0];
+
+      if (firstHitNodeId) {
+        this.state.selectedNodeIds = [firstHitNodeId];
+      }
     }
 
-    const selectedIndexes = sortIndexes(this.state.selectedPrimitiveIndexes).filter((index) => {
-      return this.state.primitives[index];
-    });
+    const selectedStarts = getSelectedEditablePrimitiveStarts(this.state);
 
-    if (selectedIndexes.length === 0) {
+    if (selectedStarts.length === 0) {
       return;
     }
 
-    const bounds = getPrimitivesBounds(selectedIndexes.map((index) => this.state.primitives[index]));
+    const bounds = getPrimitivesBounds(selectedStarts.map((start) => start.primitive));
 
     if (!bounds) {
       return;
@@ -275,88 +354,201 @@ export class CanvasView {
       pivot,
       angle: Math.atan2(dy, dx),
       distance: Math.hypot(dx, dy),
-      primitives: selectedIndexes.map((index) => ({
-        index,
-        primitive: { ...this.state.primitives[index] },
-      })),
+      primitives: selectedStarts.map((start) => ({ nodeId: start.nodeId, primitive: { ...start.primitive } })),
     };
     this.interactionMode = this.state.activeTool === "rotate" ? "rotatingSelection" : "scalingSelection";
+    this.activeInteractionCursor = this.getTransformCursor(point);
     this.hasTransformedSelection = false;
+    this.updateCursor();
   }
 
   private beginPrimitiveCreation(point: Point): void {
     this.resetInteraction();
     this.interactionMode = "creatingPrimitive";
+    this.activeInteractionCursor = "crosshair";
     this.dragStart = point;
     this.draftPrimitive = null;
-    this.state.selectedPrimitiveIndexes = [];
+    this.state.selectedNodeIds = [];
+    this.updateCursor();
   }
 
   private beginBoxSelection(point: Point, isAddingToSelection: boolean): void {
     this.resetInteraction();
     this.interactionMode = "draggingSelection";
+    this.activeInteractionCursor = "crosshair";
     this.selectionStart = point;
     this.selectionCurrent = point;
     this.isAddingToSelection = isAddingToSelection;
 
     if (!isAddingToSelection) {
-      this.state.selectedPrimitiveIndexes = [];
+      this.state.selectedNodeIds = [];
     }
   }
 
-  private beginSelection(point: Point, isRangeSelection: boolean, hitIndexes: number[]): void {
-    this.dragStart = null;
-    this.draftPrimitive = null;
-    this.moveStart = null;
-    this.movePrimitiveStarts = [];
-    this.pendingSingleSelectionIndex = null;
-    this.isMovingPrimitive = false;
-    this.interactionMode = "draggingPrimitives";
+  private beginPointerPress(point: Point, clientPoint: Point, hitNodeIds: string[], isRangeSelection: boolean): void {
+    this.resetInteraction();
+    this.pointerStartSpritePoint = point;
+    this.pointerStartClientPoint = clientPoint;
+    this.pointerStartHitNodeIds = hitNodeIds;
+    this.pointerStartSelectedNodeIds = [...this.state.selectedNodeIds];
+    this.pointerStartShiftKey = isRangeSelection;
+    this.hasExceededClickThreshold = false;
+  }
 
-    if (hitIndexes.length === 0) {
-      this.state.selectedPrimitiveIndexes = [];
+  private continuePointerPress(point: Point, clientPoint: Point): void {
+    if (!this.pointerStartSpritePoint || !this.pointerStartClientPoint) {
+      return;
+    }
+
+    if (!this.hasExceededClickThreshold) {
+      const distance = getDistance(clientPoint, this.pointerStartClientPoint);
+
+      if (distance <= CLICK_THRESHOLD_PX) {
+        return;
+      }
+
+      this.hasExceededClickThreshold = true;
+
+      if (this.pointerStartHitNodeIds.length === 0 && this.state.activeTool !== "fill") {
+        this.beginBoxSelection(this.pointerStartSpritePoint, this.pointerStartShiftKey);
+        this.selectionCurrent = point;
+        this.render();
+        return;
+      }
+
+      if (
+        this.state.activeTool !== "fill" &&
+        this.canDragSelectionFromHits(this.pointerStartHitNodeIds, this.pointerStartSelectedNodeIds)
+      ) {
+        this.beginSelectionDrag(this.pointerStartSpritePoint, this.pointerStartSelectedNodeIds);
+      }
+    }
+
+    if (this.interactionMode === "draggingPrimitives") {
+      this.moveSelection(point);
+    } else if (this.interactionMode === "draggingSelection") {
+      this.selectionCurrent = point;
+      this.render();
+    }
+  }
+
+  private endPointerPress(point: Point, clientPoint: Point): void {
+    if (!this.pointerStartClientPoint) {
+      this.clearPointerPress();
+      return;
+    }
+
+    const isClick = !this.hasExceededClickThreshold && getDistance(clientPoint, this.pointerStartClientPoint) <= CLICK_THRESHOLD_PX;
+
+    if (this.interactionMode === "draggingPrimitives") {
+      this.endSelectionMove();
+      this.clearPointerPress();
+      return;
+    }
+
+    if (this.interactionMode === "draggingSelection") {
+      this.endBoxSelection();
+      this.clearPointerPress();
+      return;
+    }
+
+    if (isClick) {
+      if (this.state.activeTool === "fill") {
+        this.fillTopmostPrimitive(this.hitTestAllPrimitives(point));
+      } else {
+        this.selectCanvasClick(point, this.pointerStartShiftKey);
+      }
+    } else {
+      this.clickCycleState = null;
+    }
+
+    this.clearPointerPress();
+  }
+
+  private selectCanvasClick(point: Point, isRangeSelection: boolean): void {
+    const hitNodeIds = this.hitTestAllPrimitives(point);
+
+    if (hitNodeIds.length === 0) {
+      if (!isRangeSelection) {
+        this.state.selectedNodeIds = [];
+      }
+
+      this.clickCycleState = null;
       return;
     }
 
     if (isRangeSelection) {
-      const selectedIndex = hitIndexes[0];
-      const selectedIndexes = new Set(this.state.selectedPrimitiveIndexes);
+      const selectedNodeId = hitNodeIds[0];
 
-      if (selectedIndexes.has(selectedIndex)) {
-        selectedIndexes.delete(selectedIndex);
-      } else {
-        selectedIndexes.add(selectedIndex);
+      if (!selectedNodeId) {
+        return;
       }
 
-      this.state.selectedPrimitiveIndexes = sortIndexes([...selectedIndexes]);
-      this.interactionMode = "idle";
+      const selectedIds = new Set(this.state.selectedNodeIds);
+
+      if (selectedIds.has(selectedNodeId)) {
+        selectedIds.delete(selectedNodeId);
+      } else {
+        selectedIds.add(selectedNodeId);
+      }
+
+      this.state.selectedNodeIds = [...selectedIds];
+      this.clickCycleState = null;
       return;
     }
 
-    const selectedHitIndex = hitIndexes.find((index) => this.state.selectedPrimitiveIndexes.includes(index));
-    const currentIndex = this.state.selectedPrimitiveIndexes.length === 1 ? this.state.selectedPrimitiveIndexes[0] : null;
-    const hitPosition = currentIndex === null ? -1 : hitIndexes.indexOf(currentIndex);
-    const selectedIndex =
-      selectedHitIndex === undefined || this.state.selectedPrimitiveIndexes.length === 1
-        ? hitIndexes[hitPosition === -1 ? 0 : (hitPosition + 1) % hitIndexes.length]
-        : selectedHitIndex;
+    const selectedNodeId = this.getClickCycleSelection(point, hitNodeIds);
 
-    if (!this.state.selectedPrimitiveIndexes.includes(selectedIndex)) {
-      this.state.selectedPrimitiveIndexes = [selectedIndex];
-    } else if (this.state.selectedPrimitiveIndexes.length > 1) {
-      this.pendingSingleSelectionIndex = selectedIndex;
+    if (selectedNodeId) {
+      this.state.selectedNodeIds = [selectedNodeId];
     }
+  }
 
+  private getClickCycleSelection(point: Point, hitNodeIds: string[]): string | null {
+    const shouldCycle =
+      this.clickCycleState !== null &&
+      getDistance(point, this.clickCycleState.point) <= getSpriteClickThreshold(this.canvas) &&
+      arraysEqual(hitNodeIds, this.clickCycleState.hitNodeIds);
+    const selectedNodeId = this.state.selectedNodeIds.length === 1 ? this.state.selectedNodeIds[0] : null;
+    const selectedIndex = selectedNodeId === null ? -1 : hitNodeIds.indexOf(selectedNodeId);
+    const nextIndex = shouldCycle && selectedIndex !== -1 ? (selectedIndex + 1) % hitNodeIds.length : 0;
+
+    this.clickCycleState = {
+      point,
+      hitNodeIds: [...hitNodeIds],
+    };
+
+    return hitNodeIds[nextIndex] ?? null;
+  }
+
+  private canDragSelectionFromHits(hitNodeIds: readonly string[], selectedNodeIds: readonly string[]): boolean {
+    const selectedEditableIds = new Set(
+      getSelectedEditablePrimitiveStarts(this.state, selectedNodeIds).map((start) => start.nodeId),
+    );
+
+    return hitNodeIds.some((nodeId) => selectedEditableIds.has(nodeId));
+  }
+
+  private beginSelectionDrag(point: Point, selectedNodeIds: readonly string[]): void {
+    this.dragStart = null;
+    this.draftPrimitive = null;
     this.moveStart = point;
-    this.movePrimitiveStarts = this.state.selectedPrimitiveIndexes.flatMap((index) => {
-      const primitive = this.state.primitives[index];
-
-      if (!primitive) {
-        return [];
-      }
-
-      return [{ index, point: { x: primitive.x, y: primitive.y } }];
+    this.movePrimitiveStarts = getSelectedEditablePrimitiveStarts(this.state, selectedNodeIds).map(({ nodeId, primitive }) => {
+      return { nodeId, point: { x: primitive.x, y: primitive.y } };
     });
+    this.isMovingPrimitive = false;
+    this.interactionMode = "draggingPrimitives";
+    this.activeInteractionCursor = "grabbing";
+    this.updateCursor();
+  }
+
+  private clearPointerPress(): void {
+    this.pointerStartSpritePoint = null;
+    this.pointerStartClientPoint = null;
+    this.pointerStartHitNodeIds = [];
+    this.pointerStartSelectedNodeIds = [];
+    this.pointerStartShiftKey = false;
+    this.hasExceededClickThreshold = false;
   }
 
   private moveSelection(point: Point): void {
@@ -374,12 +566,11 @@ export class CanvasView {
 
       this.state.undoStack.push(createHistorySnapshot(this.state));
       this.state.redoStack = [];
-      this.pendingSingleSelectionIndex = null;
       this.isMovingPrimitive = true;
     }
 
     for (const start of this.movePrimitiveStarts) {
-      const primitive = this.state.primitives[start.index];
+      const primitive = getEditableCommand(this.state, start.nodeId);
 
       if (!primitive) {
         continue;
@@ -406,7 +597,7 @@ export class CanvasView {
     this.ensureTransformHistory();
 
     for (const start of this.transformStart.primitives) {
-      const primitive = this.state.primitives[start.index];
+      const primitive = getEditableCommand(this.state, start.nodeId);
 
       if (!primitive) {
         continue;
@@ -446,7 +637,7 @@ export class CanvasView {
     this.ensureTransformHistory();
 
     for (const start of this.transformStart.primitives) {
-      const primitive = this.state.primitives[start.index];
+      const primitive = getEditableCommand(this.state, start.nodeId);
 
       if (!primitive) {
         continue;
@@ -479,15 +670,11 @@ export class CanvasView {
   }
 
   private endSelectionMove(): void {
-    if (!this.isMovingPrimitive && this.pendingSingleSelectionIndex !== null) {
-      this.state.selectedPrimitiveIndexes = [this.pendingSingleSelectionIndex];
-    }
-
     this.moveStart = null;
     this.movePrimitiveStarts = [];
-    this.pendingSingleSelectionIndex = null;
     this.interactionMode = "idle";
     this.isMovingPrimitive = false;
+    this.activeInteractionCursor = null;
   }
 
   private endBoxSelection(): void {
@@ -497,14 +684,14 @@ export class CanvasView {
     }
 
     const selectionBounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
-    const selectedIndexes = this.state.primitives.flatMap((primitive, index) => {
-      return boundsIntersect(selectionBounds, getPrimitiveBounds(primitive)) ? [index] : [];
+    const selectedIds = getEditablePrimitiveNodeEntries(this.state.nodes).flatMap((entry) => {
+      return !entry.locked && boundsIntersect(selectionBounds, getPrimitiveBounds(entry.command)) ? [entry.node.id] : [];
     });
 
     if (this.isAddingToSelection) {
-      this.state.selectedPrimitiveIndexes = sortIndexes([...this.state.selectedPrimitiveIndexes, ...selectedIndexes]);
+      this.state.selectedNodeIds = [...new Set([...this.state.selectedNodeIds, ...selectedIds])];
     } else {
-      this.state.selectedPrimitiveIndexes = selectedIndexes;
+      this.state.selectedNodeIds = selectedIds;
     }
 
     this.resetInteraction();
@@ -519,7 +706,6 @@ export class CanvasView {
     this.draftPrimitive = null;
     this.moveStart = null;
     this.movePrimitiveStarts = [];
-    this.pendingSingleSelectionIndex = null;
     this.selectionStart = null;
     this.selectionCurrent = null;
     this.isAddingToSelection = false;
@@ -527,21 +713,142 @@ export class CanvasView {
     this.isMovingPrimitive = false;
     this.transformStart = null;
     this.hasTransformedSelection = false;
+    this.activeInteractionCursor = null;
+    this.clearPointerPress();
+  }
+
+  private updateCursor(): void {
+    this.canvas.style.cursor = this.calculateCursor();
+  }
+
+  private calculateCursor(): CanvasCursor {
+    if (this.activeInteractionCursor && this.hasActiveInteraction()) {
+      return this.activeInteractionCursor;
+    }
+
+    if (!this.hoverPoint) {
+      return "default";
+    }
+
+    const lockedTarget = this.hitTestTopPrimitive(this.hoverPoint);
+
+    if (lockedTarget?.locked) {
+      return "not-allowed";
+    }
+
+    if (this.state.activeTool === "rotate") {
+      return this.isOverRotateHandle(this.hoverPoint) ? "crosshair" : "default";
+    }
+
+    if (this.state.activeTool === "scale") {
+      return this.hitTestScaleHandle(this.hoverPoint)?.cursor ?? "default";
+    }
+
+    if (this.state.activeTool !== null && this.state.activeTool !== "fill") {
+      return "crosshair";
+    }
+
+    const hitNodeIds = this.hitTestAllPrimitives(this.hoverPoint);
+
+    if (this.state.activeTool === "fill") {
+      return hitNodeIds.length > 0 ? "crosshair" : "default";
+    }
+
+    if (this.canDragSelectionFromHits(hitNodeIds, this.state.selectedNodeIds)) {
+      return "grab";
+    }
+
+    return hitNodeIds.length > 0 ? "grab" : "default";
+  }
+
+  private hasActiveInteraction(): boolean {
+    return this.interactionMode !== "idle" || this.pointerStartSpritePoint !== null;
+  }
+
+  private getTransformCursor(point: Point): CanvasCursor {
+    if (this.state.activeTool === "rotate") {
+      return "crosshair";
+    }
+
+    return this.hitTestScaleHandle(point)?.cursor ?? "nwse-resize";
+  }
+
+  private hitTestTopPrimitive(point: Point): PrimitiveHitTarget | null {
+    const entries = getEditablePrimitiveNodeEntries(this.state.nodes);
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+
+      if (isPointInPrimitive(point, entry.command)) {
+        return { locked: entry.locked };
+      }
+    }
+
+    return null;
+  }
+
+  private hitTestScaleHandle(point: Point): ScaleHandleHit | null {
+    const bounds = this.getSelectedBounds();
+
+    if (!bounds) {
+      return null;
+    }
+
+    const radius = getSpriteHandleRadius(this.canvas);
+    const handles: Array<{ point: Point; cursor: CanvasCursor }> = [
+      { point: { x: bounds.minX, y: bounds.minY }, cursor: "nwse-resize" },
+      { point: { x: bounds.maxX, y: bounds.minY }, cursor: "nesw-resize" },
+      { point: { x: bounds.minX, y: bounds.maxY }, cursor: "nesw-resize" },
+      { point: { x: bounds.maxX, y: bounds.maxY }, cursor: "nwse-resize" },
+      { point: { x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2 }, cursor: "ew-resize" },
+      { point: { x: bounds.maxX, y: (bounds.minY + bounds.maxY) / 2 }, cursor: "ew-resize" },
+      { point: { x: (bounds.minX + bounds.maxX) / 2, y: bounds.minY }, cursor: "ns-resize" },
+      { point: { x: (bounds.minX + bounds.maxX) / 2, y: bounds.maxY }, cursor: "ns-resize" },
+    ];
+
+    for (const handle of handles) {
+      if (getDistance(point, handle.point) <= radius) {
+        return { cursor: handle.cursor };
+      }
+    }
+
+    return null;
+  }
+
+  private isOverRotateHandle(point: Point): boolean {
+    const bounds = this.getSelectedBounds();
+
+    if (!bounds) {
+      return false;
+    }
+
+    const handle = {
+      x: (bounds.minX + bounds.maxX) / 2,
+      y: bounds.minY - getSpriteRotateHandleOffset(this.canvas),
+    };
+
+    return getDistance(point, handle) <= getSpriteHandleRadius(this.canvas);
+  }
+
+  private getSelectedBounds(): RectBounds | null {
+    const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
+
+    return getPrimitivesBounds(selectedPrimitives.map((selectedPrimitive) => selectedPrimitive.primitive));
   }
 
   private drawSelection(): void {
-    const selectedIndexes = this.state.selectedPrimitiveIndexes.filter((index) => this.state.primitives[index]);
+    const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
 
-    if (selectedIndexes.length === 0) {
+    if (selectedPrimitives.length === 0) {
       return;
     }
 
-    for (const selectedIndex of selectedIndexes) {
-      this.drawPrimitiveSelection(this.state.primitives[selectedIndex]);
+    for (const selectedPrimitive of selectedPrimitives) {
+      this.drawPrimitiveSelection(selectedPrimitive.primitive);
     }
 
-    if (selectedIndexes.length > 1) {
-      this.drawGroupSelection(selectedIndexes);
+    if (selectedPrimitives.length > 1) {
+      this.drawGroupSelection(selectedPrimitives.map((selectedPrimitive) => selectedPrimitive.primitive));
     }
   }
 
@@ -588,8 +895,8 @@ export class CanvasView {
     this.ctx.restore();
   }
 
-  private drawGroupSelection(selectedIndexes: number[]): void {
-    const bounds = getPrimitivesBounds(selectedIndexes.map((index) => this.state.primitives[index]));
+  private drawGroupSelection(primitives: Primitive[]): void {
+    const bounds = getPrimitivesBounds(primitives);
 
     if (!bounds) {
       return;
@@ -664,6 +971,84 @@ function isDrawablePrimitive(primitive: Primitive): boolean {
   return primitive.w > 0 && primitive.h > 0;
 }
 
+function getClientPoint(event: PointerEvent): Point {
+  return {
+    x: event.clientX,
+    y: event.clientY,
+  };
+}
+
+function getDistance(left: Point, right: Point): number {
+  return Math.hypot(left.x - right.x, left.y - right.y);
+}
+
+function getSpriteClickThreshold(canvas: HTMLCanvasElement): number {
+  return getSpriteDistance(canvas, CLICK_THRESHOLD_PX);
+}
+
+function getSpriteHandleRadius(canvas: HTMLCanvasElement): number {
+  return getSpriteDistance(canvas, HANDLE_HIT_RADIUS_PX);
+}
+
+function getSpriteRotateHandleOffset(canvas: HTMLCanvasElement): number {
+  return getSpriteDistance(canvas, ROTATE_HANDLE_OFFSET_PX);
+}
+
+function getSpriteDistance(canvas: HTMLCanvasElement, pixels: number): number {
+  const rect = canvas.getBoundingClientRect();
+  const scale = rect.width / canvas.width;
+
+  if (!Number.isFinite(scale) || scale <= 0) {
+    return pixels;
+  }
+
+  return pixels / scale;
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function getEditableCommand(state: AppState, nodeId: string | undefined): Primitive | null {
+  if (!nodeId) {
+    return null;
+  }
+
+  const entry = getEditablePrimitiveNodeEntries(state.nodes).find((primitiveEntry) => {
+    return primitiveEntry.node.id === nodeId && !primitiveEntry.locked;
+  });
+
+  return entry?.command ?? null;
+}
+
+function getSelectedEditablePrimitiveStarts(
+  state: AppState,
+  selectedNodeIds: readonly string[] = state.selectedNodeIds,
+): TransformPrimitiveStart[] {
+  const selectedIds = new Set(selectedNodeIds);
+  const seenCommands = new Set<Primitive>();
+  const starts: TransformPrimitiveStart[] = [];
+
+  for (const nodeId of selectedIds) {
+    const node = getSceneNodeById(state.nodes, nodeId);
+
+    if (!node) {
+      continue;
+    }
+
+    for (const command of getPrimitiveCommandsForNode(node)) {
+      const editableEntry = getEditablePrimitiveNodeEntries(state.nodes).find((entry) => entry.command === command);
+
+      if (editableEntry && !editableEntry.locked && !seenCommands.has(command)) {
+        seenCommands.add(command);
+        starts.push({ nodeId: editableEntry.node.id, primitive: command });
+      }
+    }
+  }
+
+  return starts;
+}
+
 function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
   const localPoint = toPrimitiveLocalPoint(point, primitive);
 
@@ -728,10 +1113,6 @@ function getPrimitiveBounds(primitive: Primitive): RectBounds {
     maxX: primitive.x + primitive.w / 2,
     maxY: primitive.y + primitive.h / 2,
   };
-}
-
-function sortIndexes(indexes: number[]): number[] {
-  return [...new Set(indexes)].sort((a, b) => a - b);
 }
 
 function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {

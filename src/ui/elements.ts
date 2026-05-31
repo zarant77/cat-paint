@@ -13,6 +13,8 @@ export type AppElements = {
   sendBackwardButton: HTMLButtonElement;
   bringForwardButton: HTMLButtonElement;
   bringToFrontButton: HTMLButtonElement;
+  groupButton: HTMLButtonElement;
+  ungroupButton: HTMLButtonElement;
   copyPrimitiveButton: HTMLButtonElement;
   pastePrimitiveButton: HTMLButtonElement;
   deletePrimitiveButton: HTMLButtonElement;
@@ -21,7 +23,6 @@ export type AppElements = {
   redoButton: HTMLButtonElement;
   clearButton: HTMLButtonElement;
   importButton: HTMLButtonElement;
-  copyButton: HTMLButtonElement;
   showButton: HTMLButtonElement;
   importDialog: HTMLDialogElement;
   importInput: HTMLTextAreaElement;
@@ -29,7 +30,10 @@ export type AppElements = {
   importCancelButton: HTMLButtonElement;
   importConfirmButton: HTMLButtonElement;
   exportDialog: HTMLDialogElement;
-  exportOutput: HTMLTextAreaElement;
+  exportJsonTab: HTMLButtonElement;
+  exportProcedureTab: HTMLButtonElement;
+  exportJsonOutput: HTMLTextAreaElement;
+  exportProcedureOutput: HTMLTextAreaElement;
   clearDialog: HTMLDialogElement;
   clearCancelButton: HTMLButtonElement;
   clearConfirmButton: HTMLButtonElement;
@@ -49,6 +53,8 @@ export function getAppElements(): AppElements {
     sendBackwardButton: getElement<HTMLButtonElement>("send-backward-button"),
     bringForwardButton: getElement<HTMLButtonElement>("bring-forward-button"),
     bringToFrontButton: getElement<HTMLButtonElement>("bring-to-front-button"),
+    groupButton: getElement<HTMLButtonElement>("group-button"),
+    ungroupButton: getElement<HTMLButtonElement>("ungroup-button"),
     copyPrimitiveButton: getElement<HTMLButtonElement>("copy-primitive-button"),
     pastePrimitiveButton: getElement<HTMLButtonElement>("paste-primitive-button"),
     deletePrimitiveButton: getElement<HTMLButtonElement>("delete-primitive-button"),
@@ -57,7 +63,6 @@ export function getAppElements(): AppElements {
     redoButton: getElement<HTMLButtonElement>("redo-button"),
     clearButton: getElement<HTMLButtonElement>("clear-button"),
     importButton: getElement<HTMLButtonElement>("import-button"),
-    copyButton: getElement<HTMLButtonElement>("copy-button"),
     showButton: getElement<HTMLButtonElement>("show-button"),
     importDialog: getElement<HTMLDialogElement>("import-dialog"),
     importInput: getElement<HTMLTextAreaElement>("import-input"),
@@ -65,7 +70,10 @@ export function getAppElements(): AppElements {
     importCancelButton: getElement<HTMLButtonElement>("import-cancel-button"),
     importConfirmButton: getElement<HTMLButtonElement>("import-confirm-button"),
     exportDialog: getElement<HTMLDialogElement>("export-dialog"),
-    exportOutput: getElement<HTMLTextAreaElement>("export-output"),
+    exportJsonTab: getElement<HTMLButtonElement>("export-json-tab"),
+    exportProcedureTab: getElement<HTMLButtonElement>("export-procedure-tab"),
+    exportJsonOutput: getElement<HTMLTextAreaElement>("export-json-output"),
+    exportProcedureOutput: getElement<HTMLTextAreaElement>("export-procedure-output"),
     clearDialog: getElement<HTMLDialogElement>("clear-dialog"),
     clearCancelButton: getElement<HTMLButtonElement>("clear-cancel-button"),
     clearConfirmButton: getElement<HTMLButtonElement>("clear-confirm-button"),

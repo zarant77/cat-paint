@@ -43,6 +43,22 @@
   font-size: 24px;
 }
 
+.export-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.export-tabs button {
+  min-height: 36px;
+}
+
+.export-tabs button.is-active {
+  border-color: var(--color-accent);
+  color: #fff;
+  background: var(--color-accent);
+}
+
 .export-dialog textarea,
 .import-dialog textarea {
   width: 100%;

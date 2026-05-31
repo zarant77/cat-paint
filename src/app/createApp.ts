@@ -1,5 +1,15 @@
 import { CanvasView } from "../canvas/CanvasView.js";
 import { buildCExport } from "../export/buildCExport.js";
+import { buildJsonExport } from "../export/buildJsonExport.js";
+import type { CatPaintDocument, GroupNode, SceneNode, SceneNodeEntry } from "../document/CatPaintDocument.js";
+import {
+  cloneNodes,
+  cloneNodesWithNewIds,
+  createGroupNode,
+  getEditablePrimitiveNodeEntries,
+  getPrimitiveCommandsForNode,
+  getSceneNodeEntries,
+} from "../document/CatPaintDocument.js";
 import type { ParsedSprite } from "../import/parseSpriteC.js";
 import type { CreateToolKind, Primitive, ToolKind } from "../primitives/Primitive.js";
 import { bindKeyboardShortcuts } from "../shortcuts/keyboardShortcuts.js";
@@ -8,7 +18,7 @@ import { bindClearDialog } from "../ui/clearDialog.js";
 import { bindPrimitiveList } from "../ui/primitiveList.js";
 import { getAppElements } from "../ui/elements.js";
 import { bindImportDialog } from "../ui/importDialog.js";
-import { applyHistorySnapshot, clonePrimitives, createHistorySnapshot, createInitialState } from "./AppState.js";
+import { applyHistorySnapshot, createHistorySnapshot, createInitialState } from "./AppState.js";
 
 const MIN_CANVAS_SIZE = 1;
 const MAX_CANVAS_SIZE = 2048;
@@ -17,7 +27,6 @@ const PASTE_OFFSET = 8;
 type LayerMoveTarget = "back" | "backward" | "forward" | "front";
 
 type SelectedPrimitive = {
-  index: number;
   primitive: Primitive;
 };
 
@@ -31,11 +40,11 @@ type PrimitiveBounds = {
 export function createApp(): void {
   const elements = getAppElements();
   const state = createInitialState();
-  let primitiveClipboard: Primitive[] = [];
+  let nodeClipboard: SceneNode[] = [];
   let renderPrimitiveList = (): void => {};
 
   const updateExport = (): void => {
-    elements.exportOutput.value = buildCExport(state);
+    syncExportOutputs();
     updateSelectedPrimitiveControls();
     renderPrimitiveList();
   };
@@ -50,29 +59,49 @@ export function createApp(): void {
     elements.kindButtons.forEach((button) => {
       button.classList.toggle("is-active", state.activeTool !== null && button.dataset.kind === state.activeTool);
     });
+
+    canvasView.refreshCursor();
   };
 
-  function selectPrimitiveFromList(index: number, options: { shiftKey: boolean }): void {
-    if (!state.primitives[index]) {
+  function selectNodeFromList(nodeId: string, options: { shiftKey: boolean }): void {
+    const entry = getNodeEntry(nodeId);
+
+    if (!entry) {
       return;
     }
 
     if (options.shiftKey) {
-      const selectedIndexes = new Set(getSelectedIndexes());
+      const selectedEntries = getSelectedEntries();
+      const canMultiSelect = selectedEntries.every((selectedEntry) => selectedEntry.parent === entry.parent);
+      const selectedIds = new Set(canMultiSelect ? state.selectedNodeIds : []);
 
-      if (selectedIndexes.has(index)) {
-        selectedIndexes.delete(index);
+      if (selectedIds.has(nodeId)) {
+        selectedIds.delete(nodeId);
       } else {
-        selectedIndexes.add(index);
+        selectedIds.add(nodeId);
       }
 
-      state.selectedPrimitiveIndexes = [...selectedIndexes].sort((a, b) => a - b);
+      state.selectedNodeIds = sortNodeIdsByTreeOrder([...selectedIds]);
     } else {
-      state.selectedPrimitiveIndexes = [index];
+      state.selectedNodeIds = [nodeId];
     }
 
     updateSelectedPrimitiveControls();
     renderPrimitiveList();
+    canvasView.render();
+  }
+
+  function renameNode(nodeId: string, name: string): void {
+    const entry = getNodeEntry(nodeId);
+    const trimmedName = name.trim();
+
+    if (!entry || trimmedName === "" || entry.node.name === trimmedName) {
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    entry.node.name = trimmedName;
+    state.redoStack = [];
     canvasView.render();
   }
 
@@ -81,14 +110,14 @@ export function createApp(): void {
   });
 
   const clearSprite = (): void => {
-    if (state.primitives.length === 0) {
+    if (state.nodes.length === 0) {
       return;
     }
 
     state.undoStack.push(createHistorySnapshot(state));
-    state.primitives = [];
+    state.nodes = [];
     state.redoStack = [];
-    state.selectedPrimitiveIndexes = [];
+    state.selectedNodeIds = [];
     canvasView.render();
   };
 
@@ -97,36 +126,37 @@ export function createApp(): void {
   });
 
   const requestClear = (): void => {
-    if (state.primitives.length === 0) {
+    if (state.nodes.length === 0) {
       return;
     }
 
     clearDialog.requestClear();
   };
 
-  const copyExport = async (): Promise<void> => {
-    const output = buildCExport(state);
-
-    elements.exportOutput.value = output;
-
-    await navigator.clipboard.writeText(output);
-  };
-
   const showExport = (): void => {
-    elements.exportOutput.value = buildCExport(state);
+    syncExportOutputs();
     elements.exportDialog.showModal();
   };
 
-  const applyImportedSprite = (sprite: ParsedSprite): void => {
+  const applyImportedSprite = (sprite: ParsedSprite | CatPaintDocument): void => {
     state.undoStack.push(createHistorySnapshot(state));
-    state.spriteId = sprite.spriteId;
-    state.spriteWidth = sprite.spriteWidth;
-    state.spriteHeight = sprite.spriteHeight;
-    state.pivotX = sprite.pivotX;
-    state.pivotY = sprite.pivotY;
-    state.primitives = clonePrimitives(sprite.primitives);
+    if (isCatPaintDocument(sprite)) {
+      state.spriteId = sprite.sprite.id;
+      state.spriteWidth = sprite.sprite.width;
+      state.spriteHeight = sprite.sprite.height;
+      state.pivotX = sprite.sprite.pivotX;
+      state.pivotY = sprite.sprite.pivotY;
+      state.nodes = cloneNodes(sprite.nodes);
+    } else {
+      state.spriteId = sprite.spriteId;
+      state.spriteWidth = sprite.spriteWidth;
+      state.spriteHeight = sprite.spriteHeight;
+      state.pivotX = sprite.pivotX;
+      state.pivotY = sprite.pivotY;
+      state.nodes = cloneNodes(sprite.nodes);
+    }
     state.redoStack = [];
-    state.selectedPrimitiveIndexes = [];
+    state.selectedNodeIds = [];
 
     syncCanvasSizeInput();
 
@@ -138,8 +168,21 @@ export function createApp(): void {
     onImport: applyImportedSprite,
   });
 
+  elements.exportJsonTab.addEventListener("click", () => {
+    setActiveExportFormat("json");
+  });
+
+  elements.exportProcedureTab.addEventListener("click", () => {
+    setActiveExportFormat("procedure");
+  });
+
   const primitiveList = bindPrimitiveList(elements, state, {
-    onSelectPrimitive: selectPrimitiveFromList,
+    onSelectNode: selectNodeFromList,
+    onToggleGroup: toggleGroupCollapsed,
+    onToggleNodeVisibility: toggleNodeVisibility,
+    onToggleNodeLocked: toggleNodeLocked,
+    onMoveNode: moveNodeFromList,
+    onRenameNode: renameNode,
   });
 
   renderPrimitiveList = primitiveList.render;
@@ -201,6 +244,14 @@ export function createApp(): void {
       moveSelectedLayer(target);
     },
 
+    onGroup: (): void => {
+      groupSelection();
+    },
+
+    onUngroup: (): void => {
+      ungroupSelection();
+    },
+
     onCopyPrimitive: (): void => {
       copySelectedPrimitive();
     },
@@ -247,7 +298,6 @@ export function createApp(): void {
 
     onClear: requestClear,
     onImport: importDialog.requestImport,
-    onCopy: copyExport,
     onShow: showExport,
     onUpdateExport: updateExport,
   });
@@ -283,7 +333,7 @@ export function createApp(): void {
         return;
       }
 
-      state.selectedPrimitiveIndexes = [];
+      state.selectedNodeIds = [];
       canvasView.render();
     },
 
@@ -297,64 +347,173 @@ export function createApp(): void {
   canvasView.bind();
   canvasView.render();
 
-  function getSelectedIndexes(): number[] {
-    return [...new Set(state.selectedPrimitiveIndexes)].filter((index) => state.primitives[index]).sort((a, b) => a - b);
-  }
-
   function getSelectedPrimitives(): SelectedPrimitive[] {
-    return getSelectedIndexes().map((index) => ({
-      index,
-      primitive: state.primitives[index],
-    }));
+    const editableCommands = new Set(
+      getEditablePrimitiveNodeEntries(state.nodes)
+        .filter((entry) => !entry.locked)
+        .map((entry) => entry.command),
+    );
+    const selectedCommands = new Set<Primitive>();
+
+    return getSelectedEditableNodes().flatMap((node) => {
+      return getPrimitiveCommandsForNode(node).flatMap((primitive) => {
+        if (!editableCommands.has(primitive) || selectedCommands.has(primitive)) {
+          return [];
+        }
+
+        selectedCommands.add(primitive);
+        return [{ primitive }];
+      });
+    });
   }
 
   function copySelectedPrimitive(): void {
-    const selectedPrimitives = getSelectedPrimitives();
+    const selectedNodes = getSelectedNodes();
 
-    if (selectedPrimitives.length === 0) {
+    if (selectedNodes.length === 0) {
       return;
     }
 
-    primitiveClipboard = selectedPrimitives.map(({ primitive }) => ({ ...primitive }));
+    nodeClipboard = cloneNodes(selectedNodes);
     updateSelectedPrimitiveControls();
   }
 
   function pastePrimitive(): void {
-    if (primitiveClipboard.length === 0) {
+    if (nodeClipboard.length === 0) {
       return;
     }
 
     state.undoStack.push(createHistorySnapshot(state));
 
-    const pastedPrimitives = primitiveClipboard.map((primitive) => ({
-      ...primitive,
-      x: primitive.x + PASTE_OFFSET,
-      y: primitive.y + PASTE_OFFSET,
-    }));
+    const pastedNodes = cloneNodesWithNewIds(nodeClipboard, { x: PASTE_OFFSET, y: PASTE_OFFSET });
 
-    const firstPastedIndex = state.primitives.length;
-
-    state.primitives.push(...pastedPrimitives);
-    state.selectedPrimitiveIndexes = pastedPrimitives.map((_, index) => firstPastedIndex + index);
+    state.nodes.push(...pastedNodes);
+    state.selectedNodeIds = pastedNodes.map((node) => node.id);
     state.redoStack = [];
 
     canvasView.render();
   }
 
   function deleteSelectedPrimitive(): void {
-    const selectedIndexes = getSelectedIndexes();
+    const selectedIds = new Set(
+      getSelectedEntries()
+        .filter((entry) => !isNodeOrAncestorLocked(entry) && !hasLockedDescendant(entry.node))
+        .map((entry) => entry.node.id),
+    );
 
-    if (selectedIndexes.length === 0) {
-      state.selectedPrimitiveIndexes = [];
+    if (state.selectedNodeIds.length === 0) {
+      state.selectedNodeIds = [];
+      updateSelectedPrimitiveControls();
+      canvasView.render();
+      return;
+    }
+
+    if (selectedIds.size === 0) {
+      updateSelectedPrimitiveControls();
+      canvasView.render();
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    state.nodes = removeSelectedNodes(state.nodes, selectedIds);
+    state.selectedNodeIds = [];
+    state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function toggleNodeVisibility(nodeId: string): void {
+    const entry = getNodeEntry(nodeId);
+
+    if (!entry) {
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    entry.node.visible = !entry.node.visible;
+    state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function toggleNodeLocked(nodeId: string): void {
+    const entry = getNodeEntry(nodeId);
+
+    if (!entry) {
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    entry.node.locked = !entry.node.locked;
+    state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function groupSelection(): void {
+    const selectedEntries = getSelectedEntries();
+
+    if (
+      selectedEntries.length < 2 ||
+      selectedEntries.some((entry) => isNodeOrAncestorLocked(entry)) ||
+      !selectedEntries.every((entry) => entry.node.type === "primitive")
+    ) {
       updateSelectedPrimitiveControls();
       return;
     }
 
-    const selectedSet = new Set(selectedIndexes);
+    const firstEntry = selectedEntries[0];
+    const parent = firstEntry.parent;
+
+    if (!selectedEntries.every((entry) => entry.parent === parent)) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    const selectedIds = new Set(selectedEntries.map((entry) => entry.node.id));
+    const siblings = parent ? parent.children : state.nodes;
+    const children = siblings.filter((node) => selectedIds.has(node.id));
+
+    if (children.length < 2) {
+      return;
+    }
+
+    const group = createGroupNode(children, countGroups(state.nodes));
 
     state.undoStack.push(createHistorySnapshot(state));
-    state.primitives = state.primitives.filter((_, index) => !selectedSet.has(index));
-    state.selectedPrimitiveIndexes = [];
+    replaceSiblings(parent, groupSelectedSiblings(siblings, selectedIds, group));
+    state.selectedNodeIds = [group.id];
+    state.collapsedGroupIds = state.collapsedGroupIds.filter((id) => id !== group.id);
+    state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function ungroupSelection(): void {
+    const selectedEntries = getSelectedEntries();
+
+    const selectedEntry = selectedEntries[0];
+
+    if (
+      selectedEntries.length !== 1 ||
+      !selectedEntry ||
+      isNodeOrAncestorLocked(selectedEntry) ||
+      selectedEntry.node.type !== "group"
+    ) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    const group = selectedEntry.node;
+
+    if (group.children.length === 0) {
+      return;
+    }
+
+    state.undoStack.push(createHistorySnapshot(state));
+    replaceSiblings(selectedEntry.parent, ungroupSiblings(getSiblings(selectedEntry.parent), group));
+    state.selectedNodeIds = group.children.map((node) => node.id);
+    state.collapsedGroupIds = state.collapsedGroupIds.filter((id) => id !== group.id);
     state.redoStack = [];
 
     canvasView.render();
@@ -401,27 +560,77 @@ export function createApp(): void {
   }
 
   function moveSelectedLayer(target: LayerMoveTarget): void {
-    const selectedIndexes = getSelectedIndexes();
+    const selectedEntries = getSelectedEntries();
 
-    if (selectedIndexes.length === 0 || state.primitives.length < 2) {
+    if (selectedEntries.length === 0 || !isSameParentSelection(selectedEntries)) {
       updateSelectedPrimitiveControls();
       return;
     }
 
-    const selectedSet = new Set(selectedIndexes);
-    const selectedPrimitives = state.primitives.filter((_, index) => selectedSet.has(index));
-    const remainingPrimitives = state.primitives.filter((_, index) => !selectedSet.has(index));
-    const nextIndex = getNextLayerIndex(selectedIndexes, remainingPrimitives.length, target);
-    const nextPrimitives = insertPrimitives(remainingPrimitives, selectedPrimitives, nextIndex);
+    const firstEntry = selectedEntries[0];
 
-    if (arraysEqual(state.primitives, nextPrimitives)) {
+    if (!firstEntry) {
+      return;
+    }
+
+    const parent = firstEntry.parent;
+    const siblings = getSiblings(parent);
+
+    if (siblings.length < 2) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    const selectedIds = new Set(selectedEntries.map((entry) => entry.node.id));
+    const selectedIndexes = selectedEntries.map((entry) => entry.index);
+    const selectedNodes = siblings.filter((node) => selectedIds.has(node.id));
+    const remainingNodes = siblings.filter((node) => !selectedIds.has(node.id));
+    const nextIndex = getNextLayerIndex(selectedIndexes, remainingNodes.length, target);
+    const nextNodes = insertNodes(remainingNodes, selectedNodes, nextIndex);
+
+    if (arraysEqual(siblings, nextNodes)) {
       updateSelectedPrimitiveControls();
       return;
     }
 
     state.undoStack.push(createHistorySnapshot(state));
-    state.primitives = nextPrimitives;
-    state.selectedPrimitiveIndexes = selectedPrimitives.map((primitive) => state.primitives.indexOf(primitive));
+    replaceSiblings(parent, nextNodes);
+    state.selectedNodeIds = selectedNodes.map((node) => node.id);
+    state.redoStack = [];
+
+    canvasView.render();
+  }
+
+  function moveNodeFromList(nodeId: string, direction: "up" | "down"): void {
+    const entry = getNodeEntry(nodeId);
+
+    if (!entry) {
+      return;
+    }
+
+    const siblings = getSiblings(entry.parent);
+    const offset = direction === "up" ? -1 : 1;
+    const nextIndex = entry.index + offset;
+
+    if (nextIndex < 0 || nextIndex >= siblings.length) {
+      updateSelectedPrimitiveControls();
+      return;
+    }
+
+    const nextSiblings = [...siblings];
+    const currentNode = nextSiblings[entry.index];
+    const swappedNode = nextSiblings[nextIndex];
+
+    if (!currentNode || !swappedNode) {
+      return;
+    }
+
+    nextSiblings[entry.index] = swappedNode;
+    nextSiblings[nextIndex] = currentNode;
+
+    state.undoStack.push(createHistorySnapshot(state));
+    replaceSiblings(entry.parent, nextSiblings);
+    state.selectedNodeIds = sortNodeIdsByTreeOrder(state.selectedNodeIds);
     state.redoStack = [];
 
     canvasView.render();
@@ -429,30 +638,46 @@ export function createApp(): void {
 
   function updateSelectedPrimitiveControls(): void {
     const selectedPrimitives = getSelectedPrimitives();
-    const selectedIndexes = selectedPrimitives.map(({ index }) => index);
+    const selectedEntries = getSelectedEntries();
+    const selectedIndexes = selectedEntries.map((entry) => entry.index);
+    const firstEntry = selectedEntries[0];
+    const siblings = firstEntry && isSameParentSelection(selectedEntries) ? getSiblings(firstEntry.parent) : [];
     const hasSelection = selectedPrimitives.length > 0;
     const isAtBack = selectedIndexes.every((index, position) => index === position);
-    const frontStartIndex = state.primitives.length - selectedIndexes.length;
+    const frontStartIndex = siblings.length - selectedIndexes.length;
     const isAtFront = selectedIndexes.every((index, position) => index === frontStartIndex + position);
+    const selectedGroupCount = selectedEntries.filter((entry) => entry.node.type === "group").length;
+    const canEditSelectedEntries = selectedEntries.every((entry) => !isNodeOrAncestorLocked(entry));
+    const canDelete = selectedEntries.some((entry) => !isNodeOrAncestorLocked(entry) && !hasLockedDescendant(entry.node));
+    const canGroup =
+      selectedEntries.length > 1 &&
+      canEditSelectedEntries &&
+      isSameParentSelection(selectedEntries) &&
+      selectedEntries.every((entry) => entry.node.type === "primitive");
+    const canUngroup = selectedEntries.length === 1 && canEditSelectedEntries && firstEntry?.node.type === "group";
 
     elements.flipHorizontalButton.disabled = !hasSelection;
     elements.flipVerticalButton.disabled = !hasSelection;
-    elements.sendToBackButton.disabled = !hasSelection || isAtBack;
-    elements.sendBackwardButton.disabled = !hasSelection || isAtBack;
-    elements.bringForwardButton.disabled = !hasSelection || isAtFront;
-    elements.bringToFrontButton.disabled = !hasSelection || isAtFront;
-    elements.copyPrimitiveButton.disabled = !hasSelection;
-    elements.deletePrimitiveButton.disabled = !hasSelection;
-    elements.pastePrimitiveButton.disabled = primitiveClipboard.length === 0;
+    elements.sendToBackButton.disabled = selectedEntries.length === 0 || !isSameParentSelection(selectedEntries) || isAtBack;
+    elements.sendBackwardButton.disabled = selectedEntries.length === 0 || !isSameParentSelection(selectedEntries) || isAtBack;
+    elements.bringForwardButton.disabled = selectedEntries.length === 0 || !isSameParentSelection(selectedEntries) || isAtFront;
+    elements.bringToFrontButton.disabled = selectedEntries.length === 0 || !isSameParentSelection(selectedEntries) || isAtFront;
+    elements.groupButton.disabled = !canGroup;
+    elements.ungroupButton.disabled = !canUngroup;
+    elements.copyPrimitiveButton.disabled = selectedEntries.length === 0;
+    elements.deletePrimitiveButton.disabled = !canDelete;
+    elements.pastePrimitiveButton.disabled = nodeClipboard.length === 0;
     elements.undoButton.disabled = state.undoStack.length === 0;
     elements.redoButton.disabled = state.redoStack.length === 0;
 
-    if (selectedPrimitives.length === 0) {
+    if (selectedEntries.length === 0) {
       elements.selectionSummary.textContent = "Selected: none";
-    } else if (selectedPrimitives.length === 1) {
-      elements.selectionSummary.textContent = "Selected: 1 primitive";
+    } else if (selectedEntries.length === 1 && selectedGroupCount === 1) {
+      elements.selectionSummary.textContent = "Selected: 1 group";
+    } else if (selectedEntries.length === 1) {
+      elements.selectionSummary.textContent = "Selected: 1 node";
     } else {
-      elements.selectionSummary.textContent = `Selected: ${selectedPrimitives.length} primitives`;
+      elements.selectionSummary.textContent = `Selected: ${selectedEntries.length} nodes`;
     }
   }
 
@@ -570,12 +795,12 @@ export function createApp(): void {
     return remainingLength;
   }
 
-  function insertPrimitives(primitives: Primitive[], insertedPrimitives: Primitive[], index: number): Primitive[] {
-    return [...primitives.slice(0, index), ...insertedPrimitives, ...primitives.slice(index)];
+  function insertNodes(nodes: SceneNode[], insertedNodes: SceneNode[], index: number): SceneNode[] {
+    return [...nodes.slice(0, index), ...insertedNodes, ...nodes.slice(index)];
   }
 
-  function arraysEqual(left: Primitive[], right: Primitive[]): boolean {
-    return left.length === right.length && left.every((primitive, index) => primitive === right[index]);
+  function arraysEqual(left: SceneNode[], right: SceneNode[]): boolean {
+    return left.length === right.length && left.every((node, index) => node === right[index]);
   }
 
   function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
@@ -583,6 +808,176 @@ export function createApp(): void {
   }
 
   function clampSelection(): void {
-    state.selectedPrimitiveIndexes = getSelectedIndexes();
+    const nodeIds = new Set(getSceneNodeEntries(state.nodes).map((entry) => entry.node.id));
+
+    state.selectedNodeIds = state.selectedNodeIds.filter((nodeId) => nodeIds.has(nodeId));
   }
+
+  function getSelectedNodes(): SceneNode[] {
+    return getSelectedEntries().map((entry) => entry.node);
+  }
+
+  function getSelectedEditableNodes(): SceneNode[] {
+    return getSelectedEntries().filter((entry) => !isNodeOrAncestorLocked(entry)).map((entry) => entry.node);
+  }
+
+  function getSelectedEntries(): SceneNodeEntry[] {
+    const selectedIds = new Set(state.selectedNodeIds);
+
+    return getSceneNodeEntries(state.nodes).filter((entry) => selectedIds.has(entry.node.id));
+  }
+
+  function getNodeEntry(nodeId: string): SceneNodeEntry | null {
+    return getSceneNodeEntries(state.nodes).find((entry) => entry.node.id === nodeId) ?? null;
+  }
+
+  function sortNodeIdsByTreeOrder(nodeIds: string[]): string[] {
+    const selectedIds = new Set(nodeIds);
+
+    return getSceneNodeEntries(state.nodes).flatMap((entry) => (selectedIds.has(entry.node.id) ? [entry.node.id] : []));
+  }
+
+  function toggleGroupCollapsed(nodeId: string): void {
+    const collapsedIds = new Set(state.collapsedGroupIds);
+
+    if (collapsedIds.has(nodeId)) {
+      collapsedIds.delete(nodeId);
+    } else {
+      collapsedIds.add(nodeId);
+    }
+
+    state.collapsedGroupIds = [...collapsedIds];
+    renderPrimitiveList();
+  }
+
+  function isSameParentSelection(entries: readonly SceneNodeEntry[]): boolean {
+    const firstEntry = entries[0];
+
+    return firstEntry !== undefined && entries.every((entry) => entry.parent === firstEntry.parent);
+  }
+
+  function getSiblings(parent: GroupNode | null): SceneNode[] {
+    return parent ? parent.children : state.nodes;
+  }
+
+  function replaceSiblings(parent: GroupNode | null, nextSiblings: SceneNode[]): void {
+    if (parent) {
+      parent.children = nextSiblings;
+    } else {
+      state.nodes = nextSiblings;
+    }
+  }
+
+  function groupSelectedSiblings(siblings: readonly SceneNode[], selectedIds: ReadonlySet<string>, group: GroupNode): SceneNode[] {
+    const groupedSiblings: SceneNode[] = [];
+    let didInsertGroup = false;
+
+    for (const node of siblings) {
+      if (!selectedIds.has(node.id)) {
+        groupedSiblings.push(node);
+        continue;
+      }
+
+      if (!didInsertGroup) {
+        groupedSiblings.push(group);
+        didInsertGroup = true;
+      }
+    }
+
+    return groupedSiblings;
+  }
+
+  function ungroupSiblings(siblings: readonly SceneNode[], group: GroupNode): SceneNode[] {
+    return siblings.flatMap((node) => (node.id === group.id ? group.children : [node]));
+  }
+
+  function countGroups(nodes: readonly SceneNode[]): number {
+    return nodes.reduce((count, node) => {
+      return count + (node.type === "group" ? 1 + countGroups(node.children) : 0);
+    }, 0);
+  }
+
+  function isNodeOrAncestorLocked(entry: SceneNodeEntry): boolean {
+    if (entry.node.locked) {
+      return true;
+    }
+
+    let parent = entry.parent;
+
+    while (parent) {
+      if (parent.locked) {
+        return true;
+      }
+
+      const parentEntry = getNodeEntry(parent.id);
+      parent = parentEntry?.parent ?? null;
+    }
+
+    return false;
+  }
+
+  function hasLockedDescendant(node: SceneNode): boolean {
+    if (node.type === "primitive") {
+      return false;
+    }
+
+    return node.children.some((child) => child.locked || hasLockedDescendant(child));
+  }
+
+  function syncExportOutputs(): void {
+    elements.exportJsonOutput.value = buildJsonExport(state);
+    elements.exportProcedureOutput.value = buildCExport(state);
+  }
+
+  function getActiveExportFormat(): "json" | "procedure" {
+    return elements.exportJsonTab.classList.contains("is-active") ? "json" : "procedure";
+  }
+
+  function setActiveExportFormat(format: "json" | "procedure"): void {
+    const isJson = format === "json";
+
+    elements.exportJsonTab.classList.toggle("is-active", isJson);
+    elements.exportJsonTab.ariaSelected = String(isJson);
+    elements.exportProcedureTab.classList.toggle("is-active", !isJson);
+    elements.exportProcedureTab.ariaSelected = String(!isJson);
+    elements.exportJsonOutput.hidden = !isJson;
+    elements.exportProcedureOutput.hidden = isJson;
+  }
+
+  function isCatPaintDocument(sprite: ParsedSprite | CatPaintDocument): sprite is CatPaintDocument {
+    return "format" in sprite;
+  }
+}
+
+function removeSelectedNodes(nodes: readonly SceneNode[], selectedIds: ReadonlySet<string>): SceneNode[] {
+  const visit = (node: SceneNode): SceneNode | null => {
+    if (selectedIds.has(node.id)) {
+      return null;
+    }
+
+    if (node.type === "primitive") {
+      return node;
+    }
+
+    const children = node.children.flatMap((child) => {
+      const nextChild = visit(child);
+
+      return nextChild ? [nextChild] : [];
+    });
+
+    if (children.length === 0) {
+      return null;
+    }
+
+    return {
+      ...node,
+      children,
+    };
+  };
+
+  return nodes.flatMap((node) => {
+    const nextNode = visit(node);
+
+    return nextNode ? [nextNode] : [];
+  });
 }

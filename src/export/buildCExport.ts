@@ -1,4 +1,5 @@
 import type { AppState } from "../app/AppState.js";
+import { flattenNodes } from "../document/CatPaintDocument.js";
 import type { PrimitiveKind } from "../primitives/Primitive.js";
 import { clamp } from "../utils/clamp.js";
 import { sanitizeSpriteId, toCSymbol } from "../utils/naming.js";
@@ -7,7 +8,7 @@ export function buildCExport(state: AppState): string {
   const spriteId = sanitizeSpriteId(state.spriteId || "sprite");
   const symbol = `${toCSymbol(spriteId).toUpperCase()}_SPRITE`;
 
-  const commandLines = state.primitives.map((primitive) => {
+  const commandLines = flattenNodes(state.nodes).map((primitive) => {
     const kind = toCCommandKind(primitive.kind);
     const color = toRgbaHex(primitive.color, primitive.alpha);
     const rotation = Math.round(primitive.rotation * 1000);
