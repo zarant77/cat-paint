@@ -5,9 +5,11 @@ import {
   flattenNodes,
   getEditablePrimitiveNodeEntries,
   getPrimitiveCommandsForNode,
+  getSceneNodeEntries,
   getSceneNodeById,
   getVisiblePrimitiveNodeEntries,
 } from "../document/CatPaintDocument.js";
+import type { SceneNode } from "../document/CatPaintDocument.js";
 import type { AppElements } from "../ui/elements.js";
 import type { CreateToolKind, Point, Primitive, ToolKind } from "../primitives/Primitive.js";
 import { createPrimitiveFromDrag } from "./primitiveFactory.js";
@@ -340,7 +342,7 @@ export class CanvasView {
     this.resetInteraction();
 
     if (this.state.selectedNodeIds.length === 0 && hitNodeIds.length > 0) {
-      const firstHitNodeId = hitNodeIds[0];
+      const firstHitNodeId = resolveCanvasSelectableNode(hitNodeIds[0], this.state.nodes);
 
       if (firstHitNodeId) {
         this.state.selectedNodeIds = [firstHitNodeId];
@@ -482,7 +484,7 @@ export class CanvasView {
   }
 
   private selectCanvasClick(point: Point, isRangeSelection: boolean): void {
-    const hitNodeIds = this.hitTestAllPrimitives(point);
+    const hitNodeIds = resolveCanvasSelectableNodeIds(this.hitTestAllPrimitives(point), this.state.nodes);
 
     if (hitNodeIds.length === 0) {
       if (!isRangeSelection) {
@@ -700,9 +702,17 @@ export class CanvasView {
     }
 
     const selectionBounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
-    const selectedIds = getEditablePrimitiveNodeEntries(this.state.nodes).flatMap((entry) => {
-      return !entry.locked && boundsIntersect(selectionBounds, getPrimitiveBounds(entry.command)) ? [entry.node.id] : [];
-    });
+    const selectedIds = dedupeNodeIds(
+      getEditablePrimitiveNodeEntries(this.state.nodes).flatMap((entry) => {
+        if (entry.locked || !boundsIntersect(selectionBounds, getPrimitiveBounds(entry.command))) {
+          return [];
+        }
+
+        const nodeId = resolveCanvasSelectableNode(entry.node.id, this.state.nodes);
+
+        return nodeId ? [nodeId] : [];
+      }),
+    );
 
     if (this.isAddingToSelection) {
       this.state.selectedNodeIds = [...new Set([...this.state.selectedNodeIds, ...selectedIds])];
@@ -1051,6 +1061,34 @@ function getSpriteDistance(canvas: HTMLCanvasElement, pixels: number): number {
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function resolveCanvasSelectableNode(hitPrimitiveId: string | undefined, nodes: readonly SceneNode[]): string | null {
+  if (!hitPrimitiveId) {
+    return null;
+  }
+
+  const entry = getSceneNodeEntries(nodes).find((sceneEntry) => sceneEntry.node.id === hitPrimitiveId);
+
+  if (!entry) {
+    return null;
+  }
+
+  return entry.parent?.id ?? entry.node.id;
+}
+
+function resolveCanvasSelectableNodeIds(hitPrimitiveIds: readonly string[], nodes: readonly SceneNode[]): string[] {
+  const resolvedIds = hitPrimitiveIds.flatMap((hitPrimitiveId) => {
+    const nodeId = resolveCanvasSelectableNode(hitPrimitiveId, nodes);
+
+    return nodeId ? [nodeId] : [];
+  });
+
+  return dedupeNodeIds(resolvedIds);
+}
+
+function dedupeNodeIds(nodeIds: readonly string[]): string[] {
+  return [...new Set(nodeIds)];
 }
 
 function getEditableCommand(state: AppState, nodeId: string | undefined): Primitive | null {
